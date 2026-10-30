@@ -41,9 +41,15 @@ case $EVENT_NAME in
   *) echo "::error::unsupported EVENT_NAME '$EVENT_NAME'"; exit 1 ;;
 esac
 
-# tag_commit: commit the tag VERSION points at, empty when there is no tag.
+# tag_commit: commit the tag VERSION points at (peeled for annotated tags),
+# empty when there is no tag. A lookup failure aborts the run: the REST commits
+# endpoint printed its 422 error body for a missing tag, which then passed as a
+# "tag at another commit".
 tag_commit() {
-  gh api "repos/$repo/commits/refs/tags/$VERSION" --jq .sha 2>/dev/null || true
+  local refs
+  refs=$(git ls-remote --tags "https://github.com/$repo" "refs/tags/$VERSION" "refs/tags/$VERSION^{}")
+  awk -v t="refs/tags/$VERSION" '$2 == t "^{}" { peeled = $1 } $2 == t { direct = $1 }
+    END { print (peeled != "" ? peeled : direct) }' <<<"$refs"
 }
 
 if gh release view "$VERSION" --repo "$repo" >/dev/null 2>&1; then

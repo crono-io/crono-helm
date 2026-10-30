@@ -15,8 +15,8 @@
 # scripts/ci/bump-release.sh); without it they log a notice and do nothing.
 # Manual runs (workflow_dispatch) release unconditionally.
 #
-# Event data reaches shell steps only through `env:`; actions are pinned by
-# commit SHA.
+# Event data reaches shell steps only through `env:`; actions are referenced by
+# major version tag.
 name: Auto Release
 
 on:
@@ -89,7 +89,7 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Check out the tested commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.target.outputs.sha }}
           fetch-depth: 0

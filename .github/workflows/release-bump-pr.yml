@@ -15,7 +15,7 @@
 # run falls back to GITHUB_TOKEN, whose pushes trigger no workflows, and
 # dispatches Charts CI on the branch explicitly.
 #
-# Actions are pinned by commit SHA; tools come from scripts/ci/install-tools.sh.
+# Actions are referenced by major version tag; tools come from scripts/ci/install-tools.sh.
 name: Release Bump PR
 
 on:
@@ -61,7 +61,7 @@ jobs:
       actions: write
     steps:
       - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -87,7 +87,7 @@ jobs:
       - name: Create the App token
         id: app-token
         if: steps.app.outputs.configured == 'true'
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.CRONO_HELM_APP_ID }}
           private-key: ${{ secrets.CRONO_HELM_APP_PRIVATE_KEY }}
@@ -126,7 +126,7 @@ jobs:
       - name: Create or update the pull request
         id: cpr
         if: steps.bump.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ steps.app-token.outputs.token || github.token }}
           branch: release/crono-${{ steps.meta.outputs.version }}

@@ -15,8 +15,8 @@
 # push. Re-running for a version resumes a partial publish: absent charts are
 # pushed and signed, existing signed ones are kept.
 #
-# Event data reaches shell steps only through `env:`; actions are pinned by
-# commit SHA and tools are installed by scripts/ci/install-tools.sh with
+# Event data reaches shell steps only through `env:`; actions are referenced by
+# major version tag and tools are installed by scripts/ci/install-tools.sh with
 # SHA-256 verification.
 name: Publish Charts
 
@@ -47,7 +47,7 @@ jobs:
       id-token: write
     steps:
       - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 

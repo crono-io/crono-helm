@@ -1,6 +1,6 @@
 # crono-stack
 
-![Version: 0.2.0](https://img.shields.io/badge/Version-0.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.9](https://img.shields.io/badge/AppVersion-0.1.9-informational?style=flat-square)
+![Version: 0.2.1](https://img.shields.io/badge/Version-0.2.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.10](https://img.shields.io/badge/AppVersion-0.1.10-informational?style=flat-square)
 
 Umbrella chart for crono: crono-server (API, scheduler, dispatcher), crono-web (single-page app) and, for evaluation, a bundled single-node NATS JetStream from the official NATS chart. PostgreSQL and execution workers stay external.
 
@@ -21,7 +21,7 @@ authentication, reachable only inside the cluster:
 
 ```sh
 helm install crono oci://ghcr.io/crono-io/charts/crono-stack \
-  --version 0.2.0 -n crono --create-namespace \
+  --version 0.2.1 -n crono --create-namespace \
   --set nats.enabled=true \
   --set server.nats.url=nats://crono-nats.crono.svc.cluster.local:4222 \
   --set server.database.host=postgres.example.internal \
@@ -45,8 +45,8 @@ Kubernetes: `>=1.30.0-0`
 
 | Repository | Name | Version |
 |------------|------|---------|
-| file://../crono-server | server(crono-server) | 0.2.0 |
-| file://../crono-web | web(crono-web) | 0.2.0 |
+| file://../crono-server | server(crono-server) | 0.2.1 |
+| file://../crono-web | web(crono-web) | 0.2.1 |
 | https://nats-io.github.io/k8s/helm/charts/ | nats | 2.15.2 |
 
 ## Values
@@ -57,4 +57,6 @@ Kubernetes: `>=1.30.0-0`
 | nats.enabled | bool | `false` | Deploy a NATS server from the official chart in this release, for evaluation and single-cluster setups. Production should run a separately managed NATS JetStream cluster (docs/examples/nats-jetstream-ha.yaml). When enabled, point crono-server at it: `server.nats.url: nats://<release>-nats.<namespace>.svc.cluster.local:4222`. |
 | nats.natsBox | object | `{"enabled":false}` | The interactive nats-box pod is not deployed; run it ad hoc when needed. |
 | server.enabled | bool | `true` | Deploy crono-server (API, scheduler, outbox dispatcher, worker-control responders). Resources are named `<release>-server`. |
+| server.image.digest | string | `"sha256:760caa9063ec73a13a3714951b6f8c55f1ac4f209fdd66a9ffd96fa07fe5c9cc"` | Image index digest of crono-server for the chart `appVersion`, set by each release. It takes precedence over `server.image.tag`: set both, or clear it (`""`) to deploy by tag. |
 | web.enabled | bool | `true` | Deploy crono-web (the single-page app behind nginx). Resources are named `<release>-web`. |
+| web.image.digest | string | `"sha256:227a949c48bda66bf6f76847e5ca04ff1f303c77d85fd10fcd4c1a8aef818c4e"` | Image index digest of crono-web for the chart `appVersion`, set by each release. It takes precedence over `web.image.tag`: set both, or clear it (`""`) to deploy by tag. |

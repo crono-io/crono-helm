@@ -1,12 +1,12 @@
 dependencies:
 - name: crono-server
   repository: file://../crono-server
-  version: 0.2.0
+  version: 0.2.1
 - name: crono-web
   repository: file://../crono-web
-  version: 0.2.0
+  version: 0.2.1
 - name: nats
   repository: https://nats-io.github.io/k8s/helm/charts/
   version: 2.15.2
-digest: sha256:ad644f02725d27d51906dd7e7843acbc5c91609ee96f03a5e05e246c76f6cb50
-generated: "2026-10-30T18:00:26.004292481Z"
+digest: sha256:42b1f98d14cc9b48e48c578a585af10e8e475fb8c3031e6a7c9ad3ecfd7cc814
+generated: "2026-10-30T21:53:56.66530472Z"

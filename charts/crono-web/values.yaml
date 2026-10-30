@@ -25,7 +25,7 @@ image:
   tag: ""
   # -- Image index digest (`sha256:<64 hex>`, from the crono release notes).
   # When set the image is pulled as `repository@digest`.
-  digest: ""
+  digest: "sha256:227a949c48bda66bf6f76847e5ca04ff1f303c77d85fd10fcd4c1a8aef818c4e"
   # -- Image pull policy.
   pullPolicy: IfNotPresent
 # -- Fail rendering unless `image.digest` is set. Recommended for production.

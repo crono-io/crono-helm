@@ -43,10 +43,10 @@ node_image=${KIND_NODE_IMAGE:-kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf9
 # to each release the charts move to (its promoted digests and source commit).
 # Releases before 0.1.9 lack NATS TLS/auth support, which the bundled
 # evaluation NATS (plain, unauthenticated) does not need.
-crono_version=${CRONO_SMOKE_VERSION:-0.1.8}
-crono_commit=${CRONO_SMOKE_COMMIT:-1392949bc26f00a1ba57813fd0aa09cebb33cfb1} # tag 0.1.8 (peeled)
-server_digest=${CRONO_SMOKE_SERVER_DIGEST:-sha256:fcfdda540b4ac788621d36ba1c868a8a17d79ed46e477b332a34ab8e014d25ec}
-web_digest=${CRONO_SMOKE_WEB_DIGEST:-sha256:6ebfb1fbcdb29e1af65163cf33c53af12edc2e3a995f1f49d779442ac213d18e}
+crono_version=${CRONO_SMOKE_VERSION:-0.1.10}
+crono_commit=${CRONO_SMOKE_COMMIT:-6bd271afb4abdd50b21369a3998c4d7b0af50c29} # crono 0.1.10
+server_digest=${CRONO_SMOKE_SERVER_DIGEST:-sha256:760caa9063ec73a13a3714951b6f8c55f1ac4f209fdd66a9ffd96fa07fe5c9cc}
+web_digest=${CRONO_SMOKE_WEB_DIGEST:-sha256:227a949c48bda66bf6f76847e5ca04ff1f303c77d85fd10fcd4c1a8aef818c4e}
 # crono-web images before 0.1.9 cannot start unprivileged (see above).
 if [[ $(printf '%s\n' "$crono_version" 0.1.9 | sort -V | head -n 1) == 0.1.9 ]]; then
   web_mode=${CRONO_SMOKE_WEB:-check}

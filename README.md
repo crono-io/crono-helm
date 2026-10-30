@@ -29,7 +29,7 @@ credentials Secret and runs one NATS JetStream server without TLS or
 authentication inside the release:
 
 ```sh
-helm install crono oci://ghcr.io/crono-io/charts/crono-stack --version 0.2.0 \
+helm install crono oci://ghcr.io/crono-io/charts/crono-stack --version 0.2.1 \
   --namespace crono --create-namespace \
   --set nats.enabled=true \
   --set server.nats.url=nats://crono-nats.crono.svc.cluster.local:4222 \
@@ -82,7 +82,7 @@ Follow the [installation guide](docs/install-guide.md) step by step.
 | `crono-web` | single-page app (nginx) | [charts/crono-web](charts/crono-web/README.md) |
 
 Install a component on its own with
-`helm install <name> oci://ghcr.io/crono-io/charts/crono-server --version 0.2.0 ...`.
+`helm install <name> oci://ghcr.io/crono-io/charts/crono-server --version 0.2.1 ...`.
 
 Further reading: [installation guide](docs/install-guide.md) (prerequisites,
 schema, Secrets, NATS options, install, verify, upgrade, rollback, uninstall)
@@ -94,7 +94,7 @@ policy, availability, disaster recovery, releases).
 Every published chart digest is signed keylessly by the release workflow:
 
 ```sh
-cosign verify ghcr.io/crono-io/charts/crono-stack:0.2.0 \
+cosign verify ghcr.io/crono-io/charts/crono-stack:0.2.1 \
   --certificate-identity-regexp '^https://github\.com/crono-io/crono-helm/\.github/workflows/publish-charts\.yml@refs/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

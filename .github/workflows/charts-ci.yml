@@ -46,7 +46,9 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Set up chart-testing (ct, yamllint, yamale)
-        uses: helm/chart-testing-action@v2
+        # Upstream's `v2` tag still points at v2.8.0, whose cosign check of ct
+        # fails ("error during PEM decoding"); use the release tag until v2 moves.
+        uses: helm/chart-testing-action@v2.9.0
         with:
           version: 3.15.0
           yamllint_version: 1.33.0

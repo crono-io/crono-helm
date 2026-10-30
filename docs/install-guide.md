@@ -249,7 +249,7 @@ release name such as `n` fails to render).
 **Evaluation** (bundled NATS, chart-created Secret):
 
 ```sh
-helm install crono oci://ghcr.io/crono-io/charts/crono-stack --version 0.2.0 \
+helm install crono oci://ghcr.io/crono-io/charts/crono-stack --version 0.2.1 \
   -n crono --create-namespace \
   --set nats.enabled=true \
   --set server.nats.url=nats://crono-nats.crono.svc.cluster.local:4222 \
@@ -266,7 +266,7 @@ databases without a verifiable certificate.
 replace every `REPLACE` value (digests, hosts, CIDRs), then:
 
 ```sh
-helm upgrade --install crono oci://ghcr.io/crono-io/charts/crono-stack --version 0.2.0 \
+helm upgrade --install crono oci://ghcr.io/crono-io/charts/crono-stack --version 0.2.1 \
   -n crono -f production-stack.yaml --wait --timeout 10m
 ```
 
@@ -350,7 +350,7 @@ Deployment selectors changed (`app.kubernetes.io/name` is now `server` /
 ```sh
 helm -n crono get values crono > old-values.yaml       # translate with the table above
 helm -n crono uninstall crono
-helm install crono oci://ghcr.io/crono-io/charts/crono-stack --version 0.2.0 \
+helm install crono oci://ghcr.io/crono-io/charts/crono-stack --version 0.2.1 \
   -n crono -f new-values.yaml --wait
 ```
 

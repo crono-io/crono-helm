@@ -7,9 +7,9 @@ description: >-
 type: application
 # Kept equal to crono-server, crono-web and their dependency entries below
 # (scripts/ci/check-chart-versions.sh).
-version: 0.2.0
+version: 0.2.1
 # crono release whose images the subcharts deploy by default.
-appVersion: "0.1.9"
+appVersion: "0.1.10"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/crono-io/crono-helm
 sources:
@@ -25,12 +25,12 @@ maintainers:
 dependencies:
   - name: crono-server
     alias: server
-    version: 0.2.0
+    version: 0.2.1
     repository: file://../crono-server
     condition: server.enabled
   - name: crono-web
     alias: web
-    version: 0.2.0
+    version: 0.2.1
     repository: file://../crono-web
     condition: web.enabled
   # Official NATS chart, for evaluation and single-cluster setups. Production
@@ -39,3 +39,6 @@ dependencies:
     version: 2.15.2
     repository: https://nats-io.github.io/k8s/helm/charts/
     condition: nats.enabled
+# crono commit the release was built from (scripts/ci/bump-release.sh).
+annotations:
+  crono/source-commit: "6bd271afb4abdd50b21369a3998c4d7b0af50c29"

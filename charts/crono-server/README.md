@@ -1,6 +1,6 @@
 # crono-server
 
-![Version: 0.2.0](https://img.shields.io/badge/Version-0.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.9](https://img.shields.io/badge/AppVersion-0.1.9-informational?style=flat-square)
+![Version: 0.2.1](https://img.shields.io/badge/Version-0.2.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.10](https://img.shields.io/badge/AppVersion-0.1.10-informational?style=flat-square)
 
 crono-server: the crono control plane (HTTP API, scheduler, outbox dispatcher and worker-control responders). PostgreSQL, NATS JetStream and execution workers are external to this chart.
 
@@ -11,7 +11,7 @@ reachable from the cluster.
 
 ```sh
 helm install crono-server oci://ghcr.io/crono-io/charts/crono-server \
-  --version 0.2.0 -n crono --create-namespace \
+  --version 0.2.1 -n crono --create-namespace \
   --set database.host=postgres.example.internal \
   --set nats.url=nats://nats.nats.svc:4222 \
   --set secret.authToken="$(openssl rand -hex 32)" \
@@ -71,7 +71,7 @@ Kubernetes: `>=1.30.0-0`
 | existingSecret | string | `""` | Existing Secret with keys `CRONO_AUTH_DEVELOPMENT_TOKEN`, `PGPASSWORD` and, depending on `nats.auth.mode`, `nats.nkey`, `nats.creds` or `CRONO_NATS_PASSWORD`. When empty the chart creates a Secret from `secret`. |
 | extraEnv | list | `[]` | Extra environment variables (full EnvVar objects), e.g. `CRONO_OUTBOX_*`. |
 | fullnameOverride | string | `""` | Override the full resource name (defaults to `<release>-<chart>`, or the release name when it already contains the chart name). |
-| image.digest | string | `""` | Image index digest (`sha256:<64 hex>`, from the crono release notes). When set the image is pulled as `repository@digest`. |
+| image.digest | string | `"sha256:760caa9063ec73a13a3714951b6f8c55f1ac4f209fdd66a9ffd96fa07fe5c9cc"` | Image index digest (`sha256:<64 hex>`, from the crono release notes). When set the image is pulled as `repository@digest`. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"ghcr.io/crono-io/crono-server"` | Image repository. |
 | image.tag | string | chart `appVersion` | Image tag. Ignored when `digest` is set. |

@@ -1,7 +1,7 @@
 # Production values for charts/crono-stack, release "crono" in namespace "crono".
 #
 #   helm upgrade --install crono oci://ghcr.io/crono-io/charts/crono-stack \
-#     --version 0.2.0 -n crono -f docs/examples/production-stack.yaml --wait
+#     --version 0.2.1 -n crono -f docs/examples/production-stack.yaml --wait
 #
 # Assumes (docs/install-guide.md):
 #   - external PostgreSQL with TLS and the crono schema applied;

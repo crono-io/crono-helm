@@ -3,8 +3,8 @@ name: crono-web
 description: >-
   crono-web: the crono single-page app served by unprivileged nginx. Route `/` to it and `/api` to crono-server on the same host.
 type: application
-version: 0.2.0
-appVersion: "0.1.9"
+version: 0.2.1
+appVersion: "0.1.10"
 # preStop `sleep` lifecycle handlers are enabled by default from 1.30.
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/crono-io/crono

@@ -1,0 +1,116 @@
+# Releases the charts once a version has passed Charts CI on main.
+#
+# After a successful Charts CI run for a push to main (or a manual run on main),
+# reads the chart version of the tested commit and runs scripts/ci/auto-release.sh:
+# when no GitHub release exists for it yet, it creates release `X.Y.Z` (the
+# chart version) at exactly that commit; when the release already exists at
+# that commit, it is kept. Either way publish-charts.yml is then dispatched on
+# the tag (it is idempotent), so re-running this workflow recovers a failed or
+# cancelled publish dispatch. A release created with GITHUB_TOKEN does not fire
+# `release: published`, so the explicit dispatch is the only publish trigger.
+# Later commits keeping a released chart version (docs, CI changes) are skipped
+# when charts/ is unchanged since the release tag, and fail otherwise.
+# Automatic runs release only charts produced by a crono release bump
+# (`crono/source-commit` annotation in charts/crono-stack/Chart.yaml, written by
+# scripts/ci/bump-release.sh); without it they log a notice and do nothing.
+# Manual runs (workflow_dispatch) release unconditionally.
+#
+# Event data reaches shell steps only through `env:`; actions are pinned by
+# commit SHA.
+name: Auto Release
+
+on:
+  workflow_run:
+    workflows: [Charts CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      head_sha:
+        description: Tested main commit to release (40 hex); empty = current main
+        required: false
+        type: string
+        default: ''
+
+permissions: {}
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Resolve the tested commit
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SHA: ${{ inputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_run ]]; then
+            sha=$RUN_SHA
+          elif [[ -n "$INPUT_SHA" ]]; then
+            sha=$INPUT_SHA
+          else
+            sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          fi
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::expected a 40-hex commit SHA, got '$sha'"
+            exit 1
+          fi
+          # Only commits on main (main identical to or ahead of them) are released.
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...main" --jq .status)
+          if [[ "$status" != identical && "$status" != ahead ]]; then
+            echo "::error::$sha is not on main (compare status '$status')"
+            exit 1
+          fi
+          # Charts CI must have passed on the commit (re-checked for manual runs).
+          passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow charts-ci.yml --commit "$sha" \
+            --status success --limit 1 --json databaseId --jq length)
+          if [[ "$passed" != 1 ]]; then
+            echo "::error::no successful Charts CI run for $sha"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the tested commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the chart version
+        id: meta
+        run: |
+          set -euo pipefail
+          scripts/ci/check-chart-versions.sh
+          version=$(awk '/^version:/ { print $2; exit }' charts/crono-stack/Chart.yaml)
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::invalid chart version '$version'"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release and publish
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA: ${{ steps.target.outputs.sha }}
+        run: scripts/ci/auto-release.sh

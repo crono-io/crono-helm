@@ -1,8 +1,10 @@
 # Publish crono-server, crono-web and crono-stack to
 # oci://ghcr.io/<owner>/charts and sign each digest with cosign (keyless,
 # GitHub OIDC). Runs when a GitHub Release is published (tag X.Y.Z or vX.Y.Z)
-# or manually with a version; every Chart.yaml must already carry that version
-# (scripts/ci/check-chart-versions.sh).
+# or on workflow_dispatch with a version: auto-release.yml dispatches it on the
+# release tag it just created (a GITHUB_TOKEN release fires no `published`
+# event), and it can be run by hand. Every Chart.yaml must already carry that
+# version (scripts/ci/check-chart-versions.sh).
 #
 # Published versions are never overwritten. All three charts are checked
 # through the GitHub Packages API before anything is pushed (GHCR answers 403,

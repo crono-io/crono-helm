@@ -38,10 +38,11 @@ fi
 
 cluster=${KIND_CLUSTER_NAME:-crono-smoke}
 node_image=${KIND_NODE_IMAGE:-kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5}
-# Application under test. The chart defaults to crono 0.1.9 (appVersion); the
-# smoke test pins the newest published images and the schema of the same
-# release. 0.1.8 has no NATS TLS/auth support, which the bundled evaluation
-# NATS (plain, unauthenticated) does not need.
+# Application under test: images by digest and the db/sql schema of one
+# published crono release. scripts/ci/bump-release.sh sets these four defaults
+# to each release the charts move to (its promoted digests and source commit).
+# Releases before 0.1.9 lack NATS TLS/auth support, which the bundled
+# evaluation NATS (plain, unauthenticated) does not need.
 crono_version=${CRONO_SMOKE_VERSION:-0.1.8}
 crono_commit=${CRONO_SMOKE_COMMIT:-1392949bc26f00a1ba57813fd0aa09cebb33cfb1} # tag 0.1.8 (peeled)
 server_digest=${CRONO_SMOKE_SERVER_DIGEST:-sha256:fcfdda540b4ac788621d36ba1c868a8a17d79ed46e477b332a34ab8e014d25ec}

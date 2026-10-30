@@ -110,22 +110,22 @@ TOOLS_DIR=$PWD/.tools scripts/ci/kind-smoke.sh   # needs Docker or KIND_EXPERIME
 `validate.sh` checks version alignment, lints, unit-tests (helm-unittest) and
 kubeconform-validates every chart, proves invalid values are refused, renders
 both examples, checks that chart READMEs match helm-docs, runs `ct lint` (when
-installed), actionlint and a secret scan. `kind-smoke.sh` installs crono-stack
-with bundled NATS against a throwaway PostgreSQL fixture and checks `/ready`,
-`/health`, the API and Pod Security. CI (`.github/workflows/charts-ci.yml`)
-runs both.
+installed), actionlint, the release-event fixtures and a secret scan.
+`kind-smoke.sh` installs crono-stack with bundled NATS against a throwaway
+PostgreSQL fixture and checks `/ready`, `/health`, the API and Pod Security.
+CI (`.github/workflows/charts-ci.yml`) runs both.
 
-Releasing: bump `version` in all three `Chart.yaml` files and the two
-`crono-stack` dependency entries to the same X.Y.Z (and `appVersion` together
-when the default crono release changes), run `helm repo add nats
-https://nats-io.github.io/k8s/helm/charts/ --force-update` and `helm dependency
-update charts/crono-stack` to refresh `Chart.lock`, regenerate the READMEs with
-`helm-docs --chart-search-root charts --template-files README.md.gotmpl`, merge,
-then publish a GitHub Release tagged `X.Y.Z`.
-`.github/workflows/publish-charts.yml` refuses mismatched versions, checks all
-three charts in the registry first (never overwriting an existing version,
-aborting on registry errors), pushes the missing ones to GHCR and signs each
-digest; re-running it resumes a partial publish. Details:
+Releasing is automated: a promoted crono release sends a `crono-release`
+dispatch, `.github/workflows/release-bump-pr.yml` opens a
+`release/crono-X.Y.Z` pull request (appVersion, next chart version, image
+digests, `Chart.lock`, READMEs and the kind smoke pin, via
+`scripts/ci/bump-release.sh`), and after it merges and Charts CI passes on
+`main`, `.github/workflows/auto-release.yml` creates the GitHub release for the
+chart version and dispatches `.github/workflows/publish-charts.yml`. That
+workflow refuses mismatched versions, checks all three charts in the registry
+first (never overwriting an existing version, aborting on registry errors),
+pushes the missing ones to GHCR and signs each digest; re-running it resumes a
+partial publish. Chart-only changes are bumped by hand. Details:
 [operations](docs/operations.md#chart-releases).
 
 Never commit secret material: NKey seeds, tokens, passwords and private keys

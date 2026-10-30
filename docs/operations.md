@@ -420,8 +420,8 @@ Existing connections keep working until recycled, so the rollout is seamless.
   `/etc/nginx/snippets` with mode `0444`, so unprivileged nginx fails with
   `open() "/etc/nginx/snippets/security-headers.conf" failed (13: Permission
   denied)` and the pods crash-loop. Fixed in crono 0.1.9 (the chart default);
-  do not pin crono-web below 0.1.9. The kind smoke test skips crono-web while
-  it pins 0.1.8 (`CRONO_SMOKE_WEB`).
+  do not pin crono-web below 0.1.9. The kind smoke test skips crono-web when
+  it pins a release before 0.1.9 (`CRONO_SMOKE_WEB`).
 - **NATS before crono 0.1.9**: crono-server images up to 0.1.8 support neither
   NATS TLS/NKey authentication nor PostgreSQL TLS; use them only against
   plaintext evaluation setups.
@@ -452,19 +452,63 @@ and PostgreSQL backups.
 ## Chart releases
 
 `crono-server`, `crono-web` and `crono-stack` are versioned in lockstep
-(`scripts/ci/check-chart-versions.sh`).
+(`scripts/ci/check-chart-versions.sh`). Releases are automated end to end:
 
-1. Bump `version` in the three `Chart.yaml` files and the two `crono-stack`
-   dependency entries; bump `appVersion` in all three when the default crono
-   release changes (its images must be published first).
-2. `helm repo add nats https://nats-io.github.io/k8s/helm/charts/ --force-update`,
-   `helm dependency update charts/crono-stack` (refreshes the committed
-   `Chart.lock`) and
-   `helm-docs --chart-search-root charts --template-files README.md.gotmpl`.
-3. `scripts/ci/validate.sh` (and `scripts/ci/kind-smoke.sh`); open a pull
-   request. CI runs both plus `ct lint` with the version-increment check.
-4. After merging, publish a GitHub Release tagged `X.Y.Z`.
-   `publish-charts.yml` (also runnable manually with a version) verifies that
+```mermaid
+flowchart LR
+  A[crono release<br/>images promoted] -->|repository_dispatch<br/>crono-release| B[release-bump-pr.yml]
+  B -->|PR release/crono-X.Y.Z| C[Charts CI on the PR]
+  C -->|review + merge| D[Charts CI on main]
+  D -->|workflow_run| E[auto-release.yml<br/>GitHub release = chart version]
+  E -->|workflow_dispatch on the tag| F[publish-charts.yml<br/>push + cosign sign]
+```
+
+1. **Bump PR.** When crono promotes a release it sends a `crono-release`
+   repository dispatch (`client_payload`: `version`, `source_sha`,
+   `server_digest`, `web_digest`). `release-bump-pr.yml` validates every value
+   with `scripts/ci/release-event.sh` (jq only, strict patterns) and runs
+   `scripts/ci/bump-release.sh`, which sets `appVersion` of all three charts to
+   the release, bumps the chart version (next patch, or the `chart_version`
+   input), updates the `crono-stack` dependency entries and `Chart.lock`,
+   records the promoted digests as `image.digest` defaults (standalone charts
+   and `crono-stack`'s `server`/`web` blocks; `image.tag` stays `""` =
+   `appVersion`), points the kind smoke test at the same release (version,
+   digests, source commit) and regenerates the READMEs; the source commit is
+   recorded as the `crono/source-commit` annotation of `crono-stack`. The
+   result is pushed to `release/crono-X.Y.Z` and a pull request is opened or
+   updated. Resend a release with the workflow's **Run workflow** button (same
+   inputs, plus an optional chart version) or by re-running crono's Dispatch
+   Helm Release. A replay of a release `main` already carries (same version,
+   source commit and digests, no chart version) changes nothing and opens no
+   pull request; pass `chart_version` to force a new chart release.
+2. **Token.** With the GitHub App configured (`vars.CRONO_HELM_APP_ID`,
+   `secrets.CRONO_HELM_APP_PRIVATE_KEY`, App installed on crono-helm with
+   contents and pull-request write) the pull request is created with an App
+   token, so Charts CI runs on it normally. Without it the workflow warns,
+   uses `GITHUB_TOKEN` (enable *Allow GitHub Actions to create and approve pull
+   requests*) and dispatches Charts CI on the branch itself; that run skips the
+   `ct` version-increment check, which only runs on `pull_request`.
+3. **Merge** after Charts CI (validate + kind smoke against the new release)
+   passes.
+4. **Release.** `auto-release.yml` runs after every successful Charts CI on
+   `main` (push or manual run) and calls `scripts/ci/auto-release.sh`. When the
+   tested commit's chart version has no GitHub release yet, it creates release
+   `X.Y.Z` (the chart version, not the crono version) at exactly that commit;
+   when the release already exists at that commit it is kept. Either way it
+   then dispatches `publish-charts.yml` on the tag, so re-running the job (or
+   running it by hand with that SHA) recovers a failed or cancelled publish
+   dispatch. Later commits that keep a released chart version are skipped when
+   `charts/` is unchanged since the release tag and fail otherwise.
+   Automatic runs only release charts produced by a crono release bump: the
+   tested `charts/crono-stack/Chart.yaml` must carry the `crono/source-commit`
+   annotation that `bump-release.sh` writes (it then stays, so later chart-only
+   bumps also release automatically). Without it, i.e. before the first
+   crono-driven bump, they log a notice and neither create a release nor
+   dispatch publishing. Releasing such a
+   commit is a deliberate manual step: run Auto Release by hand (`head_sha`
+   optional), which skips this gate.
+5. **Publish.** `publish-charts.yml` (also runs on a manually published
+   GitHub Release, or by hand with a version) verifies that
    every chart is at that version and validates, then checks all three charts
    through the GitHub Packages API before pushing any (a missing package or a
    package without the `X.Y.Z` tag is absent): absent charts are pushed to
@@ -477,6 +521,20 @@ and PostgreSQL backups.
    delete it manually in GHCR (package settings), then re-run. Re-running for
    the same version resumes a partial publish: missing charts are pushed and
    signed; when all three exist and verify, the run succeeds without changes.
-5. Verify: `cosign verify ghcr.io/crono-io/charts/crono-stack:X.Y.Z
+6. Verify: `cosign verify ghcr.io/crono-io/charts/crono-stack:X.Y.Z
    --certificate-identity-regexp '^https://github\.com/crono-io/crono-helm/\.github/workflows/publish-charts\.yml@refs/'
    --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+
+Chart-only changes (templates, defaults) bump `version` in all three
+`Chart.yaml` files and both `crono-stack` dependency entries by hand (`ct`
+requires the increment on pull requests), then run `helm dependency update
+charts/crono-stack` (after `helm repo add nats
+https://nats-io.github.io/k8s/helm/charts/`) and `helm-docs --chart-search-root
+charts --template-files README.md.gotmpl`; steps 4–6 apply after merge.
+To bump for a crono release locally, run `scripts/ci/bump-release.sh --version
+X.Y.Z --source-sha <commit> --server-digest sha256:… --web-digest sha256:…
+[--chart-version X.Y.Z]` with the promoted digests from the crono release.
+
+Because the release digests are chart defaults and a digest takes precedence
+over `image.tag`, an install that overrides `server.image.tag` or
+`web.image.tag` must also set the matching `image.digest` or clear it (`""`).

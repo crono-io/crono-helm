@@ -1,0 +1,9 @@
+{
+  "action": "crono-release",
+  "client_payload": {
+    "version": "0.1.9",
+    "source_sha": "1392949bc26f00a1ba57813fd0aa09cebb33cfb1",
+    "server_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "web_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

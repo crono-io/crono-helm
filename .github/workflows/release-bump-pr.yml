@@ -1,0 +1,162 @@
+# Opens (or updates) the chart bump pull request for a crono release.
+#
+# Triggered by the `crono-release` repository dispatch that crono-io/crono
+# sends once a release's images are promoted
+# (client_payload: version, source_sha, server_digest, web_digest), or by hand
+# with the same values plus an optional chart version. scripts/ci/release-event.sh
+# reads and validates every value from the event JSON with jq; later steps only
+# see its validated outputs through `env:`. scripts/ci/bump-release.sh then sets
+# appVersion, the next chart version, the image digests, the kind smoke pin,
+# Chart.lock and the READMEs, and the result is pushed to `release/crono-X.Y.Z`.
+#
+# With the crono-helm GitHub App configured (vars.CRONO_HELM_APP_ID,
+# secrets.CRONO_HELM_APP_PRIVATE_KEY) the pull request is created with an App
+# token, so Charts CI runs on it like on any other pull request. Without it the
+# run falls back to GITHUB_TOKEN, whose pushes trigger no workflows, and
+# dispatches Charts CI on the branch explicitly.
+#
+# Actions are pinned by commit SHA; tools come from scripts/ci/install-tools.sh.
+name: Release Bump PR
+
+on:
+  repository_dispatch:
+    types: [crono-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: crono release (X.Y.Z or vX.Y.Z)
+        required: true
+        type: string
+      source_sha:
+        description: Commit the release was built from (40 hex)
+        required: true
+        type: string
+      server_digest:
+        description: Promoted index digest of ghcr.io/crono-io/crono-server (sha256:...)
+        required: true
+        type: string
+      web_digest:
+        description: Promoted index digest of ghcr.io/crono-io/crono-web (sha256:...)
+        required: true
+        type: string
+      chart_version:
+        description: Chart version (X.Y.Z); empty = next patch of the current chart version
+        required: false
+        type: string
+        default: ''
+
+permissions: {}
+
+concurrency:
+  group: release-bump-pr
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve the release
+        id: meta
+        # Reads the event JSON with jq only; no event value reaches a script.
+        run: scripts/ci/release-event.sh
+
+      - name: Check the App configuration
+        id: app
+        env:
+          APP_ID: ${{ vars.CRONO_HELM_APP_ID }}
+          HAS_KEY: ${{ secrets.CRONO_HELM_APP_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$APP_ID" && "$HAS_KEY" == true ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::vars.CRONO_HELM_APP_ID or secrets.CRONO_HELM_APP_PRIVATE_KEY is not set; using GITHUB_TOKEN and dispatching Charts CI explicitly."
+          fi
+
+      - name: Create the App token
+        id: app-token
+        if: steps.app.outputs.configured == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.CRONO_HELM_APP_ID }}
+          private-key: ${{ secrets.CRONO_HELM_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: crono-helm
+
+      - name: Install pinned tools
+        run: |
+          scripts/ci/install-tools.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Bump the charts
+        id: bump
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          CHART_VERSION: ${{ steps.meta.outputs.chart_version }}
+          SOURCE_SHA: ${{ steps.meta.outputs.source_sha }}
+          SERVER_DIGEST: ${{ steps.meta.outputs.server_digest }}
+          WEB_DIGEST: ${{ steps.meta.outputs.web_digest }}
+        run: |
+          set -euo pipefail
+          args=(--version "$VERSION" --source-sha "$SOURCE_SHA"
+            --server-digest "$SERVER_DIGEST" --web-digest "$WEB_DIGEST")
+          if [[ -n "$CHART_VERSION" ]]; then
+            args+=(--chart-version "$CHART_VERSION")
+          fi
+          scripts/ci/bump-release.sh "${args[@]}"
+          echo "chart_version=$(awk '/^version:/ { print $2; exit }' charts/crono-stack/Chart.yaml)" >> "$GITHUB_OUTPUT"
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::main already carries crono $VERSION with these digests; no pull request."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update the pull request
+        id: cpr
+        if: steps.bump.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app-token.outputs.token || github.token }}
+          branch: release/crono-${{ steps.meta.outputs.version }}
+          delete-branch: true
+          sign-commits: true
+          add-paths: |
+            charts
+            docs
+            README.md
+            scripts/ci/kind-smoke.sh
+          commit-message: Update charts to ${{ steps.bump.outputs.chart_version }} for crono ${{ steps.meta.outputs.version }}
+          title: Update charts to ${{ steps.bump.outputs.chart_version }} for crono ${{ steps.meta.outputs.version }}
+          body: |
+            Automated release bump (`.github/workflows/release-bump-pr.yml`).
+
+            - crono: `${{ steps.meta.outputs.version }}` (appVersion of all three charts)
+            - Chart version: `${{ steps.bump.outputs.chart_version }}`
+            - `ghcr.io/crono-io/crono-server`: `${{ steps.meta.outputs.server_digest }}`
+            - `ghcr.io/crono-io/crono-web`: `${{ steps.meta.outputs.web_digest }}`
+            - crono source commit (kind smoke schema): `${{ steps.meta.outputs.source_sha }}`
+            - Trigger: `${{ github.event_name }}`
+
+            After merge, Charts CI on `main` and then Auto Release create the
+            GitHub release `${{ steps.bump.outputs.chart_version }}` and publish the charts.
+
+      - name: Dispatch Charts CI on the branch
+        if: >-
+          steps.app.outputs.configured != 'true' &&
+          (steps.cpr.outputs.pull-request-operation == 'created' || steps.cpr.outputs.pull-request-operation == 'updated')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: release/crono-${{ steps.meta.outputs.version }}
+        run: gh workflow run charts-ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"

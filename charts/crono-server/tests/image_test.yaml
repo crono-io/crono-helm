@@ -7,17 +7,20 @@ templates:
 values:
   - required_values.yaml
 tests:
-  - it: defaults the tag to the chart appVersion
+  - it: without a digest, defaults the tag to the chart appVersion
     chart:
       appVersion: 9.8.7
+    set:
+      image.digest: ""
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
           value: ghcr.io/crono-io/crono-server:9.8.7
 
-  - it: uses an explicit tag
+  - it: uses an explicit tag when no digest is set
     set:
       image.tag: dev-abc123
+      image.digest: ""
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
@@ -35,6 +38,7 @@ tests:
   - it: fails when requireImageDigest is true and no digest is set
     set:
       requireImageDigest: true
+      image.digest: ""
     asserts:
       - failedTemplate:
           errorPattern: image.digest is required when requireImageDigest is true

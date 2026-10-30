@@ -13,10 +13,12 @@
 #   6. chart READMEs match helm-docs output;
 #   7. ct lint when ct, yamllint and yamale are available (CI always runs it);
 #   8. actionlint on every workflow;
-#   9. no NKey seeds or private keys anywhere in the tree.
+#   9. scripts/ci/release-event.sh accepts release-events/valid.json and refuses
+#      malformed.json and injection.json without evaluating payload text;
+#  10. no NKey seeds or private keys anywhere in the tree.
 #
 # Requires network access (NATS chart repository, kubeconform schemas) and
-# helm (+ helm-unittest plugin), kubeconform, helm-docs and actionlint on PATH
+# helm (+ helm-unittest plugin), kubeconform, helm-docs, actionlint and jq on PATH
 # or in TOOLS_DIR (scripts/ci/install-tools.sh installs the pinned versions).
 set -euo pipefail
 
@@ -98,10 +100,11 @@ must_fail "server.database.host is missing" 'database[/.]host' \
   --set server.secret.databasePassword=pw
 must_fail "no Secret and no authToken" 'secret.authToken is required' \
   --set server.database.host=db --set server.nats.url=nats://nats:4222 --set server.secret.databasePassword=pw
+# Release bumps record default digests (scripts/ci/bump-release.sh); clear them.
 must_fail "requireImageDigest without a server digest" 'image.digest is required when requireImageDigest is true' \
-  "${required[@]}" --set server.requireImageDigest=true
+  "${required[@]}" --set server.requireImageDigest=true --set server.image.digest=
 must_fail "requireImageDigest without a web digest" 'image.digest is required when requireImageDigest is true' \
-  "${required[@]}" --set web.requireImageDigest=true
+  "${required[@]}" --set web.requireImageDigest=true --set web.image.digest=
 must_fail "a non-sha256 digest" 'image[/.]digest' "${required[@]}" --set server.image.digest=latest
 must_fail "an unknown umbrella key" 'additional properties|additionalProperties|not allowed' \
   "${required[@]}" --set postgres.enabled=true
@@ -169,6 +172,28 @@ fi
 step "actionlint"
 actionlint .github/workflows/*.yml
 echo "ok: workflows"
+
+step "release-event.sh fixtures"
+command -v jq >/dev/null || fail "missing jq"
+events=$root/scripts/ci/release-events
+# release_event FIXTURE: resolve it as a repository_dispatch from inside $work,
+# so a command substitution that ran would leave its sentinel there.
+release_event() {
+  (cd "$work" && GITHUB_EVENT_NAME=repository_dispatch GITHUB_EVENT_PATH="$events/$1.json" \
+    GITHUB_OUTPUT="$work/$1.out" "$root/scripts/ci/release-event.sh")
+}
+release_event valid
+require "$work/valid.out" "version=0.1.9" "valid.json: version"
+require "$work/valid.out" "source_sha=1392949bc26f00a1ba57813fd0aa09cebb33cfb1" "valid.json: source_sha"
+require "$work/valid.out" "server_digest=sha256:aaaa" "valid.json: server_digest"
+require "$work/valid.out" "web_digest=sha256:bbbb" "valid.json: web_digest"
+for fixture in malformed injection; do
+  if release_event "$fixture" 2>"$work/$fixture.err"; then fail "release-event.sh accepted $fixture.json"; fi
+  [[ ! -s "$work/$fixture.out" ]] || fail "release-event.sh wrote outputs for $fixture.json"
+  echo "ok: refused $fixture.json ($(cat "$work/$fixture.err"))"
+done
+[[ ! -e "$work/__INJECTION_SENTINEL__" && ! -e "$root/__INJECTION_SENTINEL__" ]] \
+  || fail "injection.json ran a command"
 
 step "no secret material in the tree"
 # NKey seeds (S + key type + base32) and PEM private keys must never be committed.

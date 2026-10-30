@@ -1,0 +1,185 @@
+# Publish crono-server, crono-web and crono-stack to
+# oci://ghcr.io/<owner>/charts and sign each digest with cosign (keyless,
+# GitHub OIDC). Runs when a GitHub Release is published (tag X.Y.Z or vX.Y.Z)
+# or manually with a version; every Chart.yaml must already carry that version
+# (scripts/ci/check-chart-versions.sh).
+#
+# Published versions are never overwritten. All three charts are checked
+# through the GitHub Packages API before anything is pushed (GHCR answers 403,
+# not 404, for packages that do not exist yet): a 404 for the package means
+# absent, otherwise its version tags decide; any other API failure aborts.
+# An existing version must carry a signature from this workflow, otherwise the
+# run aborts before pushing anything: this run never signs content it did not
+# push. Re-running for a version resumes a partial publish: absent charts are
+# pushed and signed, existing signed ones are kept.
+#
+# Event data reaches shell steps only through `env:`; actions are pinned by
+# commit SHA and tools are installed by scripts/ci/install-tools.sh with
+# SHA-256 verification.
+name: Publish Charts
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Chart version to publish (X.Y.Z or vX.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-charts
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve release version
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == release ]]; then raw=$RELEASE_TAG; else raw=$INPUT_VERSION; fi
+          version=${raw#v}
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::expected X.Y.Z or vX.Y.Z"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned tools
+        run: |
+          scripts/ci/install-tools.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Verify chart versions
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: scripts/ci/check-chart-versions.sh --expected "$VERSION"
+
+      - name: Validate charts
+        run: scripts/ci/validate.sh
+
+      - name: Log in to GHCR
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io --username "$GHCR_USER" --password-stdin
+          printf '%s' "$GHCR_TOKEN" | cosign login ghcr.io --username "$GHCR_USER" --password-stdin
+
+      - name: Package, push and sign
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          registry="ghcr.io/${OWNER,,}/charts"
+          issuer=https://token.actions.githubusercontent.com
+          # Signing identity: this workflow file at the triggering ref.
+          identity="https://github.com/${WORKFLOW_REF}"
+          # Signatures of existing charts may come from an earlier run of this
+          # workflow at any ref (the regexp in the README).
+          identity_re="^https://github\\.com/${REPOSITORY//./\\.}/\\.github/workflows/publish-charts\\.yml@refs/"
+          charts=(crono-server crono-web crono-stack)
+          work="$RUNNER_TEMP/publish"
+          mkdir -p "$work/packages"
+
+          # Preflight every chart before pushing any, through the Packages API.
+          owner_type=$(gh api "/users/$OWNER" --jq .type)
+          case $owner_type in
+            Organization) packages_api="/orgs/$OWNER/packages/container" ;;
+            User) packages_api="/users/$OWNER/packages/container" ;;
+            *) echo "::error::unexpected owner type '$owner_type' for $OWNER"; exit 1 ;;
+          esac
+          declare -A existing=()
+          for chart in "${charts[@]}"; do
+            tag="$registry/$chart:$VERSION"
+            package="$packages_api/charts%2F$chart"
+            # The first line of `gh api -i` is the HTTP status line.
+            rc=0
+            gh api -i "$package" >"$work/package.txt" 2>"$work/package.err" || rc=$?
+            http=$(awk 'NR == 1 { print $2 }' "$work/package.txt")
+            if [[ "$http" == 404 ]]; then
+              echo "$tag is absent (no package yet); it will be pushed"
+              continue
+            fi
+            if [[ "$rc" -ne 0 || "$http" != 200 ]]; then
+              cat "$work/package.txt" "$work/package.err"
+              echo "::error::cannot tell whether $tag exists (HTTP ${http:-none}); nothing was published"
+              exit 1
+            fi
+            # One line per version: digest, then its tags.
+            if ! gh api --paginate "$package/versions?per_page=100" \
+              --jq '.[] | [.name, (.metadata.container.tags // [] | join(" "))] | @tsv' >"$work/versions.tsv"; then
+              echo "::error::cannot list the versions of $registry/$chart; nothing was published"
+              exit 1
+            fi
+            digest=$(awk -F '\t' -v v="$VERSION" \
+              '{ n = split($2, t, " "); for (i = 1; i <= n; i++) if (t[i] == v) print $1 }' "$work/versions.tsv")
+            if [[ -z "$digest" ]]; then
+              echo "$tag is absent; it will be pushed"
+              continue
+            fi
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::unexpected digest '$digest' for existing $tag"
+              exit 1
+            fi
+            # Never sign content this run did not push: an existing version
+            # without a signature from this workflow may not match the checkout.
+            if ! cosign verify "$registry/$chart@$digest" --certificate-identity-regexp "$identity_re" \
+              --certificate-oidc-issuer "$issuer" >/dev/null; then
+              echo "::error::$tag ($digest) exists but has no verifiable signature from publish-charts.yml; nothing was published. Inspect that package version, delete it manually in GHCR, then re-run this workflow."
+              exit 1
+            fi
+            existing[$chart]=$digest
+            echo "$tag exists ($digest) and is signed; it is kept, not pushed"
+          done
+
+          {
+            echo "## Published charts ${VERSION}"
+            echo
+            echo "| Chart | Reference | Status |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for chart in "${charts[@]}"; do
+            if [[ -n "${existing[$chart]:-}" ]]; then
+              echo "| \`$chart\` | \`$registry/$chart@${existing[$chart]}\` | already published and signed |" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            helm package "charts/$chart" --destination "$work/packages"
+            helm push "$work/packages/$chart-$VERSION.tgz" "oci://$registry" 2>&1 | tee "$work/push.log"
+            digest=$(awk '$1 == "Digest:" { print $2 }' "$work/push.log")
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest for $chart"; exit 1; }
+            ref="$registry/$chart@$digest"
+            cosign sign --yes "$ref"
+            cosign verify "$ref" --certificate-identity "$identity" \
+              --certificate-oidc-issuer "$issuer" >/dev/null
+            echo "| \`$chart\` | \`$ref\` | pushed and signed |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          {
+            echo
+            echo "Signed keylessly by \`publish-charts.yml\` of \`$REPOSITORY\` (this run: \`$identity\`)."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,8 @@
+# Minimal values shared by the suites. Credentials are TEST-ONLY dummies.
+database:
+  host: postgres.example.internal
+nats:
+  url: nats://nats.nats.svc.cluster.local:4222
+secret:
+  authToken: test-only-dummy-token-not-a-real-secret-0000
+  databasePassword: test-only-dummy-password

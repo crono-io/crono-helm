@@ -1,0 +1,77 @@
+suite: crono-web NetworkPolicy
+release:
+  name: crono-web
+  namespace: crono
+templates:
+  - networkpolicy.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: denies ingress and allows only DNS egress with defaults
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - notExists:
+          path: spec.ingress
+      - lengthEqual:
+          path: spec.egress
+          count: 1
+      - equal:
+          path: spec.egress[0].to[0].namespaceSelector.matchLabels
+          value:
+            kubernetes.io/metadata.name: kube-system
+
+  - it: sends DNS to the configured peers and ports (NodeLocal DNSCache)
+    set:
+      networkPolicy:
+        enabled: true
+        dns:
+          to:
+            - ipBlock:
+                cidr: 169.254.20.10/32
+          ports:
+            - port: 53
+              protocol: UDP
+    asserts:
+      - equal:
+          path: spec.egress[0]
+          value:
+            to:
+              - ipBlock:
+                  cidr: 169.254.20.10/32
+            ports:
+              - port: 53
+                protocol: UDP
+      - lengthEqual:
+          path: spec.egress
+          count: 1
+
+  - it: allows the Ingress controller and extra egress
+    set:
+      networkPolicy:
+        enabled: true
+        ingressFrom:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: ingress-nginx
+        extraEgress:
+          - to:
+              - ipBlock:
+                  cidr: 198.51.100.0/24
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: ingress-nginx
+              ports:
+                - port: 8080
+                  protocol: TCP
+      - equal:
+          path: spec.egress[1].to[0].ipBlock.cidr
+          value: 198.51.100.0/24

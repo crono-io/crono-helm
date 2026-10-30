@@ -1,0 +1,48 @@
+suite: crono-web PodDisruptionBudget
+release:
+  name: crono-web
+  namespace: crono
+templates:
+  - pdb.yaml
+tests:
+  - it: renders with two replicas
+    set:
+      replicaCount: 2
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.minAvailable
+          value: 1
+
+  - it: is skipped with a single replica, which would block every drain
+    set:
+      replicaCount: 1
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: follows autoscaling.minReplicas instead of replicaCount when autoscaling
+    set:
+      replicaCount: 1
+      autoscaling.enabled: true
+      autoscaling.minReplicas: 2
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+
+  - it: is skipped when autoscaling can scale down to one replica
+    set:
+      replicaCount: 3
+      autoscaling.enabled: true
+      autoscaling.minReplicas: 1
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: is skipped when disabled
+    set:
+      podDisruptionBudget.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

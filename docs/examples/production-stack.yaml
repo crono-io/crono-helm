@@ -1,0 +1,108 @@
+# Production values for charts/crono-stack, release "crono" in namespace "crono".
+#
+#   helm upgrade --install crono oci://ghcr.io/crono-io/charts/crono-stack \
+#     --version 0.2.0 -n crono -f docs/examples/production-stack.yaml --wait
+#
+# Assumes (docs/install-guide.md):
+#   - external PostgreSQL with TLS and the crono schema applied;
+#   - a separately managed 3-node NATS JetStream cluster with TLS and NKey users,
+#     release "nats" in namespace "nats" (docs/examples/nats-jetstream-ha.yaml);
+#   - Secrets created ahead of time in namespace crono:
+#       crono-server       CRONO_AUTH_DEVELOPMENT_TOKEN, PGPASSWORD, nats.nkey
+#       crono-postgres-ca  ca.crt (CA of the PostgreSQL server certificate)
+#       nats-ca            ca.crt (CA of the NATS server certificate)
+#       crono-tls          TLS certificate for the public host (or cert-manager)
+#   - an Ingress controller (ingress-nginx here) and a CNI that enforces
+#     NetworkPolicy.
+#
+# Every value marked REPLACE is environment specific. The all-zero digests pass
+# the schema but do not exist, so a forgotten replacement never starts pods.
+
+server:
+  enabled: true
+  replicaCount: 2
+  requireImageDigest: true
+  image:
+    # REPLACE: release version and the image index digest of crono-server
+    # (`docker buildx imagetools inspect ghcr.io/crono-io/crono-server:<version>`).
+    tag: "0.1.9"
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  existingSecret: crono-server
+  database:
+    # REPLACE: PostgreSQL host name; must match a SAN of its certificate.
+    host: postgres.example.internal
+    port: 5432
+    name: crono
+    user: crono_runtime
+    sslMode: verify-full
+    caSecret:
+      name: crono-postgres-ca
+      key: ca.crt
+  nats:
+    url: tls://nats.nats.svc.cluster.local:4222
+    # RF3: CRONO_DISPATCH is stored on all three NATS servers.
+    replicas: 3
+    caSecret:
+      name: nats-ca
+      key: ca.crt
+    auth:
+      mode: nkey
+  logLevel: info
+  ingress:
+    enabled: true
+    className: nginx
+    # REPLACE: public host name (same as web.ingress.host).
+    host: crono.example.com
+    path: /api
+    tls:
+      enabled: true
+      secretName: crono-tls
+  networkPolicy:
+    enabled: true
+    ingressFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
+    metricsFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: monitoring
+    # REPLACE: PostgreSQL server addresses.
+    postgresCIDRs:
+      - 10.20.0.10/32
+    # NATS pods of release "nats" in namespace "nats" (the chart defaults).
+    nats:
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: nats
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: nats
+          app.kubernetes.io/instance: nats
+
+web:
+  enabled: true
+  replicaCount: 2
+  requireImageDigest: true
+  image:
+    # REPLACE: crono-web digest of the same release.
+    tag: "0.1.9"
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  ingress:
+    enabled: true
+    className: nginx
+    host: crono.example.com
+    path: /
+    tls:
+      enabled: true
+      secretName: crono-tls
+  networkPolicy:
+    enabled: true
+    ingressFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
+
+# NATS is managed separately (docs/examples/nats-jetstream-ha.yaml).
+nats:
+  enabled: false

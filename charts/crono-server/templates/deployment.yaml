@@ -1,0 +1,231 @@
+{{- /*
+crono-server: HTTP API plus the scheduler, outbox dispatcher, reconciler and
+worker-control loops. Replicas coordinate through PostgreSQL leases. NATS
+credentials and CA files are mounted through a projected volume (no subPath)
+so rotated files reach running pods, which re-read them on every NATS
+reconnect.
+*/ -}}
+{{- include "crono-server.validate" . -}}
+{{- $secretName := include "crono-server.secretName" . -}}
+{{- $natsVolume := include "crono-server.natsVolumeEnabled" . -}}
+{{- $podAnnotations := dict -}}
+{{- if not .Values.existingSecret }}
+{{- $_ := set $podAnnotations "checksum/secret" (include "crono-server.secretData" . | sha256sum) -}}
+{{- end }}
+{{- $podAnnotations = merge $podAnnotations (.Values.podAnnotations | default dict) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "crono-server.fullname" . | quote }}
+  labels:
+    {{- include "crono-server.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "crono-server.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "crono-server.podLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "crono-server.serviceAccountName" . | quote }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ if kindIs "string" . }}{{ . | quote }}{{ else }}{{ .name | quote }}{{ end }}
+        {{- end }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- include "crono-server.topologySpread" . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: server
+          image: {{ include "crono-server.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          env:
+            - name: CRONO_SERVER_PORT
+              value: {{ .Values.port | quote }}
+            - name: CRONO_AUTH_MODE
+              value: {{ .Values.auth.mode | quote }}
+            - name: CRONO_AUTH_DEVELOPMENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: CRONO_AUTH_DEVELOPMENT_TOKEN
+            - name: CRONO_DATABASE_URL
+              value: {{ include "crono-server.databaseUrl" . | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: PGPASSWORD
+            {{- with .Values.database.pool }}
+            - name: CRONO_DATABASE_MAX_CONNECTIONS
+              value: {{ .maxConnections | quote }}
+            - name: CRONO_DATABASE_MIN_CONNECTIONS
+              value: {{ .minConnections | quote }}
+            - name: CRONO_DATABASE_ACQUIRE_TIMEOUT_MS
+              value: {{ .acquireTimeoutMs | quote }}
+            - name: CRONO_DATABASE_IDLE_TIMEOUT_SECONDS
+              value: {{ .idleTimeoutSeconds | quote }}
+            - name: CRONO_DATABASE_MAX_LIFETIME_SECONDS
+              value: {{ .maxLifetimeSeconds | quote }}
+            {{- end }}
+            - name: CRONO_NATS_URL
+              value: {{ .Values.nats.url | quote }}
+            - name: CRONO_NATS_REPLICAS
+              value: {{ .Values.nats.replicas | quote }}
+            {{- if .Values.nats.caSecret.name }}
+            - name: CRONO_NATS_TLS_CA_FILE
+              value: /etc/crono/nats/ca.crt
+            {{- end }}
+            {{- if eq .Values.nats.auth.mode "nkey" }}
+            - name: CRONO_NATS_NKEY_SEED_FILE
+              value: /etc/crono/nats/nkey.seed
+            {{- else if eq .Values.nats.auth.mode "creds" }}
+            - name: CRONO_NATS_CREDS_FILE
+              value: /etc/crono/nats/nats.creds
+            {{- else if eq .Values.nats.auth.mode "userPassword" }}
+            - name: CRONO_NATS_USER
+              value: {{ .Values.nats.auth.user | quote }}
+            - name: CRONO_NATS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: CRONO_NATS_PASSWORD
+            {{- end }}
+            {{- with .Values.logLevel }}
+            - name: RUST_LOG
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.otlpEndpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /live
+              port: http
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+            timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+          {{- if .Values.preStopSleepSeconds }}
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ .Values.preStopSleepSeconds }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if or .Values.database.caSecret.name $natsVolume }}
+          volumeMounts:
+            {{- if .Values.database.caSecret.name }}
+            - name: postgres-ca
+              mountPath: /etc/crono/postgres
+              readOnly: true
+            {{- end }}
+            {{- if $natsVolume }}
+            - name: nats
+              mountPath: /etc/crono/nats
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if or .Values.database.caSecret.name $natsVolume }}
+      volumes:
+        {{- with .Values.database.caSecret }}
+        {{- if .name }}
+        - name: postgres-ca
+          secret:
+            secretName: {{ .name | quote }}
+            defaultMode: 0440
+            items:
+              - key: {{ .key | quote }}
+                path: ca.crt
+        {{- end }}
+        {{- end }}
+        {{- if $natsVolume }}
+        - name: nats
+          projected:
+            defaultMode: 0440
+            sources:
+              {{- with .Values.nats.caSecret }}
+              {{- if .name }}
+              - secret:
+                  name: {{ .name | quote }}
+                  items:
+                    - key: {{ .key | quote }}
+                      path: ca.crt
+              {{- end }}
+              {{- end }}
+              {{- if eq .Values.nats.auth.mode "nkey" }}
+              - secret:
+                  name: {{ $secretName | quote }}
+                  items:
+                    - key: nats.nkey
+                      path: nkey.seed
+              {{- else if eq .Values.nats.auth.mode "creds" }}
+              - secret:
+                  name: {{ $secretName | quote }}
+                  items:
+                    - key: nats.creds
+                      path: nats.creds
+              {{- end }}
+        {{- end }}
+      {{- end }}

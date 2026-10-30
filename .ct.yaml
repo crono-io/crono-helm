@@ -1,0 +1,9 @@
+remote: origin
+target-branch: main
+chart-dirs:
+  - charts
+chart-repos:
+  - nats=https://nats-io.github.io/k8s/helm/charts/
+validate-maintainers: false
+check-version-increment: true
+helm-extra-args: --timeout 10m0s

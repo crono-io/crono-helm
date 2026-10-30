@@ -1,0 +1,41 @@
+apiVersion: v2
+name: crono-stack
+description: >-
+  Umbrella chart for crono: crono-server (API, scheduler, dispatcher), crono-web
+  (single-page app) and, for evaluation, a bundled single-node NATS JetStream
+  from the official NATS chart. PostgreSQL and execution workers stay external.
+type: application
+# Kept equal to crono-server, crono-web and their dependency entries below
+# (scripts/ci/check-chart-versions.sh).
+version: 0.2.0
+# crono release whose images the subcharts deploy by default.
+appVersion: "0.1.9"
+kubeVersion: ">=1.30.0-0"
+home: https://github.com/crono-io/crono-helm
+sources:
+  - https://github.com/crono-io/crono
+  - https://github.com/crono-io/crono-helm
+keywords:
+  - crono
+  - scheduler
+  - workflows
+maintainers:
+  - name: Crono maintainers
+    email: nbari@tequila.io
+dependencies:
+  - name: crono-server
+    alias: server
+    version: 0.2.0
+    repository: file://../crono-server
+    condition: server.enabled
+  - name: crono-web
+    alias: web
+    version: 0.2.0
+    repository: file://../crono-web
+    condition: web.enabled
+  # Official NATS chart, for evaluation and single-cluster setups. Production
+  # runs a separately managed NATS JetStream cluster (docs/operations.md).
+  - name: nats
+    version: 2.15.2
+    repository: https://nats-io.github.io/k8s/helm/charts/
+    condition: nats.enabled

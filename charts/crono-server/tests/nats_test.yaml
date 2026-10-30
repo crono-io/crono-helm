@@ -1,0 +1,139 @@
+suite: crono-server NATS wiring
+release:
+  name: crono-server
+  namespace: crono
+templates:
+  - deployment.yaml
+values:
+  - required_values.yaml
+tests:
+  - it: mounts nothing in auth mode none without a CA
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_NATS_TLS_CA_FILE
+            value: /etc/crono/nats/ca.crt
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_NATS_URL
+            value: nats://nats.nats.svc.cluster.local:4222
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_NATS_REPLICAS
+            value: "1"
+
+  - it: projects the NKey seed from the Secret in nkey mode
+    set:
+      nats.auth.mode: nkey
+      secret.natsNkeySeed: test-only-seed
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_NATS_NKEY_SEED_FILE
+            value: /etc/crono/nats/nkey.seed
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "nats")].projected.sources
+          value:
+            - secret:
+                name: crono-server
+                items:
+                  - key: nats.nkey
+                    path: nkey.seed
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nats
+            mountPath: /etc/crono/nats
+            readOnly: true
+
+  - it: projects the creds file in creds mode
+    set:
+      existingSecret: crono-credentials
+      nats.auth.mode: creds
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_NATS_CREDS_FILE
+            value: /etc/crono/nats/nats.creds
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "nats")].projected.sources
+          value:
+            - secret:
+                name: crono-credentials
+                items:
+                  - key: nats.creds
+                    path: nats.creds
+
+  - it: passes user and password env in userPassword mode without a volume
+    set:
+      nats.auth.mode: userPassword
+      nats.auth.user: crono
+      secret.natsPassword: test-only-password
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_NATS_USER
+            value: crono
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name == "CRONO_NATS_PASSWORD")].valueFrom.secretKeyRef
+          value:
+            name: crono-server
+            key: CRONO_NATS_PASSWORD
+      - notExists:
+          path: spec.template.spec.volumes
+
+  - it: rejects userPassword mode without a user
+    set:
+      nats.auth.mode: userPassword
+      secret.natsPassword: test-only-password
+    asserts:
+      - failedTemplate:
+          errorPattern: "Must validate \"then\""
+
+  - it: mounts the NATS CA only when caSecret.name is set
+    set:
+      nats.caSecret.name: nats-ca
+      nats.caSecret.key: tls-ca.pem
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_NATS_TLS_CA_FILE
+            value: /etc/crono/nats/ca.crt
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "nats")].projected.sources
+          value:
+            - secret:
+                name: nats-ca
+                items:
+                  - key: tls-ca.pem
+                    path: ca.crt
+
+  - it: fails without nats.url
+    set:
+      nats.url: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: nats\.url
+
+  - it: fails when nats.url is nulled
+    set:
+      nats.url: null
+    asserts:
+      - failedTemplate:
+          errorPattern: url is required
+
+  - it: rejects credentials embedded in nats.url
+    set:
+      nats.url: nats://user:pass@nats:4222
+    asserts:
+      - failedTemplate:
+          errorPattern: nats\.url. Does not match pattern

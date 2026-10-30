@@ -1,0 +1,142 @@
+suite: crono-server NetworkPolicy
+release:
+  name: crono-server
+  namespace: crono
+templates:
+  - networkpolicy.yaml
+values:
+  - required_values.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: denies ingress and allows DNS plus NATS egress with defaults
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+      - notExists:
+          path: spec.ingress
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels
+          value:
+            k8s-app: kube-dns
+      - equal:
+          path: spec.egress[1]
+          value:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: nats
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: nats
+            ports:
+              - port: 4222
+                protocol: TCP
+      - lengthEqual:
+          path: spec.egress
+          count: 2
+
+  - it: sends DNS to the configured peers and ports (NodeLocal DNSCache)
+    set:
+      networkPolicy:
+        enabled: true
+        dns:
+          to:
+            - ipBlock:
+                cidr: 169.254.20.10/32
+          ports:
+            - port: 53
+              protocol: UDP
+    asserts:
+      - equal:
+          path: spec.egress[0]
+          value:
+            to:
+              - ipBlock:
+                  cidr: 169.254.20.10/32
+            ports:
+              - port: 53
+                protocol: UDP
+
+  - it: rejects an empty DNS peer list
+    set:
+      networkPolicy:
+        enabled: true
+        dns:
+          to: []
+    asserts:
+      - failedTemplate:
+          errorPattern: dns[./]to
+
+  - it: renders ingress, metrics, PostgreSQL, NATS CIDR and extra egress rules
+    set:
+      networkPolicy:
+        enabled: true
+        ingressFrom:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: ingress-nginx
+        metricsFrom:
+          - podSelector:
+              matchLabels:
+                app.kubernetes.io/name: prometheus
+        postgresCIDRs: [10.20.0.10/32]
+        nats:
+          namespaceSelector: null
+          podSelector: null
+          cidrs: [192.0.2.10/32]
+          port: 4223
+        extraEgress:
+          - to:
+              - ipBlock:
+                  cidr: 198.51.100.0/24
+            ports:
+              - port: 4317
+                protocol: TCP
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: ingress-nginx
+              ports:
+                - port: 8080
+                  protocol: TCP
+            - from:
+                - podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: prometheus
+              ports:
+                - port: 8080
+                  protocol: TCP
+      - equal:
+          path: spec.egress[1]
+          value:
+            to:
+              - ipBlock:
+                  cidr: 10.20.0.10/32
+            ports:
+              - port: 5432
+                protocol: TCP
+      - equal:
+          path: spec.egress[2]
+          value:
+            to:
+              - ipBlock:
+                  cidr: 192.0.2.10/32
+            ports:
+              - port: 4223
+                protocol: TCP
+      - equal:
+          path: spec.egress[3].ports[0].port
+          value: 4317

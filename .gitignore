@@ -1,0 +1,25 @@
+# Packaged charts and vendored dependencies (`helm dependency build`).
+# charts/crono-stack/Chart.lock is committed: it pins the NATS chart digest.
+*.tgz
+charts/*/charts/
+
+# Local tool installs (scripts/ci/install-tools.sh)
+/.tools/
+/bin/
+
+# Never commit secret material: decrypted SOPS files, NKey seeds, creds, keys.
+# SOPS-encrypted manifests (*.sops.yaml) are the only secret files allowed.
+*.dec.yaml
+*.nk
+*.nkey
+*.seed
+*.password
+*.creds
+*.key
+*.pem
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

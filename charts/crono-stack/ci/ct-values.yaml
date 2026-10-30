@@ -1,0 +1,17 @@
+# Evaluation profile used by ct lint and kubeconform: bundled NATS, chart-created
+# Secret, every component enabled. Placeholder credentials for rendering only.
+server:
+  enabled: true
+  database:
+    host: postgres.example.internal
+    sslMode: disable
+  nats:
+    url: nats://crono-nats.crono.svc.cluster.local:4222
+    replicas: 1
+  secret:
+    authToken: ci-placeholder-token-0123456789abcdef
+    databasePassword: ci-placeholder-password
+web:
+  enabled: true
+nats:
+  enabled: true

@@ -1,0 +1,83 @@
+# Static chart checks and an end-to-end kind smoke test. Read-only token;
+# actions are pinned by commit SHA (resolved with `git ls-remote`, annotated
+# tags peeled) and CLI tools are installed at pinned versions with SHA-256
+# verification by scripts/ci/install-tools.sh.
+name: Charts CI
+
+on:
+  pull_request:
+    paths:
+      - charts/**
+      - docs/examples/**
+      - scripts/ci/**
+      - .ct.yaml
+      - .github/workflows/**
+  push:
+    branches: [main]
+    paths:
+      - charts/**
+      - docs/examples/**
+      - scripts/ci/**
+      - .ct.yaml
+      - .github/workflows/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: charts-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint, unittest, kubeconform, docs, actionlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned tools
+        run: |
+          scripts/ci/install-tools.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Set up chart-testing (ct, yamllint, yamale)
+        uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510 # v2.9.0
+        with:
+          version: 3.15.0
+          yamllint_version: 1.33.0
+          yamale_version: 6.0.0
+          uv_version: 0.13.6
+
+      - name: Validate charts (versions, lint, unittest, kubeconform, examples, docs, ct lint, actionlint, secret scan)
+        run: scripts/ci/validate.sh
+
+      - name: ct lint with version increment (changed charts)
+        if: github.event_name == 'pull_request'
+        env:
+          TARGET_BRANCH: ${{ github.base_ref }}
+        run: ct lint --config .ct.yaml --target-branch "$TARGET_BRANCH"
+
+  kind-smoke:
+    name: kind smoke (PostgreSQL fixture + bundled NATS)
+    runs-on: ubuntu-24.04
+    needs: lint
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned tools
+        run: |
+          scripts/ci/install-tools.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Install crono-stack on kind and probe it
+        run: scripts/ci/kind-smoke.sh

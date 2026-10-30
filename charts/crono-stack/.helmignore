@@ -1,0 +1,15 @@
+# Patterns to ignore when building packages.
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.idea/
+.vscode/
+# helm-docs template, helm-unittest and chart-testing fixtures
+README.md.gotmpl
+ci/
+tests/

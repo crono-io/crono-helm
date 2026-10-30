@@ -1,0 +1,17 @@
+{{- /* Service for crono-server; expose it through the Ingress, not directly. */ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "crono-server.fullname" . | quote }}
+  labels:
+    {{- include "crono-server.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type | quote }}
+  selector:
+    {{- include "crono-server.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      appProtocol: http

@@ -1,0 +1,39 @@
+suite: crono-stack NOTES
+release:
+  name: crono
+  namespace: crono
+templates:
+  - templates/NOTES.txt
+values:
+  - required_values.yaml
+tests:
+  - it: points at the aliased server Service
+    asserts:
+      - matchRegexRaw:
+          pattern: "crono-server: Service crono-server, port 8080"
+      - notMatchRegexRaw:
+          pattern: Bundled NATS
+
+  - it: accepts a server.nats.url that targets the bundled NATS
+    set:
+      nats.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: "Bundled NATS \\(evaluation only\\): StatefulSet crono-nats"
+      - notMatchRegexRaw:
+          pattern: WARNING
+
+  - it: warns when the bundled NATS is not what crono-server uses
+    set:
+      nats.enabled: true
+      server.nats.url: tls://nats.nats.svc.cluster.local:4222
+    asserts:
+      - matchRegexRaw:
+          pattern: "url: nats://crono-nats.crono.svc.cluster.local:4222"
+
+  - it: follows server.fullnameOverride
+    set:
+      server.fullnameOverride: api
+    asserts:
+      - matchRegexRaw:
+          pattern: "crono-server: Service api, port 8080"

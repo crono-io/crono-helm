@@ -1,0 +1,19 @@
+crono-web {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Image: {{ include "crono-web.image" . }}{{ if not .Values.image.digest }} (not pinned by digest; set image.digest and requireImageDigest=true for production){{ end }}
+
+Watch the rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "crono-web.fullname" . }}
+{{- if .Values.ingress.enabled }}
+
+URL: http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+The app calls /api on the same origin: install crono-server with ingress.host={{ .Values.ingress.host }}.
+{{- else }}
+
+No Ingress is rendered (ingress.enabled=false). Serve `/` from this Service and
+`/api` from crono-server on the same origin.
+{{- end }}
+{{- if and .Values.networkPolicy.enabled (not .Values.networkPolicy.ingressFrom) }}
+
+WARNING: networkPolicy.ingressFrom is empty; no Ingress controller can reach crono-web.
+{{- end }}

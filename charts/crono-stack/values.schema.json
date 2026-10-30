@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "crono-stack values",
+  "description": "Umbrella values. Component keys are validated in depth by the crono-server, crono-web and nats chart schemas.",
+  "type": "object",
+  "properties": {
+    "global": {
+      "type": "object"
+    },
+    "server": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": ["enabled"]
+    },
+    "web": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": ["enabled"]
+    },
+    "nats": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": ["enabled"]
+    }
+  },
+  "required": ["server", "web", "nats"],
+  "additionalProperties": false
+}

@@ -1,0 +1,300 @@
+# Default values for the crono-server chart.
+#
+# crono-server is the stateless control plane of crono: HTTP API, scheduler,
+# outbox dispatcher and worker-control responders. PostgreSQL, NATS JetStream
+# and execution workers are external to this chart.
+#
+# Required for every install: `database.host`, `nats.url` and either
+# `existingSecret` or `secret.authToken` plus `secret.databasePassword`.
+
+# -- Override the chart name used in resource names and labels.
+nameOverride: ""
+# -- Override the full resource name (defaults to `<release>-<chart>`, or the
+# release name when it already contains the chart name).
+fullnameOverride: ""
+# -- Labels added to every rendered resource.
+commonLabels: {}
+# -- Image pull secrets (names of existing kubernetes.io/dockerconfigjson Secrets).
+imagePullSecrets: []
+
+# -- Replicas (ignored when `autoscaling.enabled`). Every replica runs the API
+# and the background loops; work is shared through PostgreSQL leases
+# (`FOR UPDATE SKIP LOCKED`), so no leader election is needed.
+replicaCount: 2
+
+image:
+  # -- Image repository.
+  repository: ghcr.io/crono-io/crono-server
+  # -- Image tag. Ignored when `digest` is set.
+  # @default -- chart `appVersion`
+  tag: ""
+  # -- Image index digest (`sha256:<64 hex>`, from the crono release notes).
+  # When set the image is pulled as `repository@digest`.
+  digest: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+# -- Fail rendering unless `image.digest` is set. Recommended for production.
+requireImageDigest: false
+
+serviceAccount:
+  # -- Create a dedicated ServiceAccount. Its token is never mounted: crono
+  # does not talk to the Kubernetes API.
+  create: true
+  # -- ServiceAccount name; defaults to the full name when empty.
+  name: ""
+  # -- ServiceAccount annotations.
+  annotations: {}
+
+# -- Container port (`CRONO_SERVER_PORT`).
+port: 8080
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port.
+  port: 8080
+
+# -- Existing Secret with keys `CRONO_AUTH_DEVELOPMENT_TOKEN`, `PGPASSWORD`
+# and, depending on `nats.auth.mode`, `nats.nkey`, `nats.creds` or
+# `CRONO_NATS_PASSWORD`. When empty the chart creates a Secret from `secret`.
+existingSecret: ""
+# Values for the chart-created Secret, used only when `existingSecret` is
+# empty. Prefer `existingSecret` (or `--set` from a secret store) over
+# committing these to a values file.
+secret:
+  # -- REQUIRED without `existingSecret`. API bearer token
+  # (`CRONO_AUTH_DEVELOPMENT_TOKEN`), 32-8192 bytes, e.g. `openssl rand -hex 32`.
+  authToken: ""
+  # -- REQUIRED without `existingSecret`. Password of `database.user` (`PGPASSWORD`).
+  databasePassword: ""
+  # -- NKey seed (key `nats.nkey`); required when `nats.auth.mode` is `nkey`.
+  natsNkeySeed: ""
+  # -- Credentials file contents (key `nats.creds`); required when
+  # `nats.auth.mode` is `creds`.
+  natsCreds: ""
+  # -- Password (key `CRONO_NATS_PASSWORD`); required when `nats.auth.mode` is
+  # `userPassword`.
+  natsPassword: ""
+
+auth:
+  # -- `CRONO_AUTH_MODE`. Only `development` (static bearer token) exists today.
+  mode: development
+
+database:
+  # -- REQUIRED. PostgreSQL host name or IP reachable from the pods.
+  host: ""
+  # -- PostgreSQL port.
+  port: 5432
+  # -- Database name.
+  name: crono
+  # -- Runtime role without DDL privileges. Its password comes from the
+  # `PGPASSWORD` Secret key; it is never put in the URL.
+  user: crono_runtime
+  # -- libpq `sslmode`: disable, allow, prefer, require, verify-ca, verify-full.
+  sslMode: verify-full
+  caSecret:
+    # -- Secret holding the CA that signed the PostgreSQL server certificate;
+    # mounted at /etc/crono/postgres/ca.crt and passed as `sslrootcert`. Empty
+    # uses the built-in webpki roots.
+    name: ""
+    # -- Key of the CA certificate in the Secret.
+    key: ca.crt
+  pool:
+    # -- `CRONO_DATABASE_MAX_CONNECTIONS` per replica (1-200).
+    maxConnections: 20
+    # -- `CRONO_DATABASE_MIN_CONNECTIONS` per replica.
+    minConnections: 2
+    # -- `CRONO_DATABASE_ACQUIRE_TIMEOUT_MS`.
+    acquireTimeoutMs: 3000
+    # -- `CRONO_DATABASE_IDLE_TIMEOUT_SECONDS`.
+    idleTimeoutSeconds: 600
+    # -- `CRONO_DATABASE_MAX_LIFETIME_SECONDS`.
+    maxLifetimeSeconds: 1800
+
+nats:
+  # -- REQUIRED. `CRONO_NATS_URL`, e.g. `nats://nats.nats.svc:4222`. A `tls://`
+  # URL forces TLS. Never embed credentials.
+  url: ""
+  # -- `CRONO_NATS_REPLICAS`: JetStream replication factor of the
+  # `CRONO_DISPATCH` stream (1, 3 or 5). Use 3 with a 3-node NATS cluster.
+  replicas: 1
+  caSecret:
+    # -- Secret with the CA of the NATS server certificate, mounted at
+    # /etc/crono/nats/ca.crt (`CRONO_NATS_TLS_CA_FILE`). Empty uses the
+    # built-in roots.
+    name: ""
+    # -- Key of the CA certificate in the Secret.
+    key: ca.crt
+  auth:
+    # -- One of `none`, `nkey` (Secret key `nats.nkey`), `creds` (key
+    # `nats.creds`) or `userPassword` (`user` below plus key
+    # `CRONO_NATS_PASSWORD`).
+    mode: none
+    # -- NATS user name; required for `userPassword` mode.
+    user: ""
+
+# -- `RUST_LOG` filter, e.g. `info` or `info,crono_server=debug`. Empty keeps
+# the binary default.
+logLevel: ""
+# -- `OTEL_EXPORTER_OTLP_ENDPOINT` (gRPC). Empty disables trace export.
+otlpEndpoint: ""
+# -- Extra environment variables (full EnvVar objects), e.g. `CRONO_OUTBOX_*`.
+extraEnv: []
+
+# -- Container resources.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+# -- Probe timings. Paths are fixed by the binary: startup and liveness use
+# `/live`, readiness `/ready` (fails while PostgreSQL is unreachable).
+probes:
+  startup:
+    periodSeconds: 2
+    failureThreshold: 30
+    timeoutSeconds: 2
+  liveness:
+    periodSeconds: 10
+    failureThreshold: 3
+    timeoutSeconds: 2
+  readiness:
+    periodSeconds: 5
+    failureThreshold: 3
+    timeoutSeconds: 3
+
+# -- Seconds the pod keeps serving after it is removed from endpoints, so
+# Ingress controllers stop routing before SIGTERM starts the drain.
+preStopSleepSeconds: 5
+# -- Must exceed preStop sleep + HTTP drain + the 10 s pool close.
+terminationGracePeriodSeconds: 30
+
+# -- Pod annotations.
+podAnnotations: {}
+# -- Extra pod labels.
+podLabels: {}
+# -- Pod security context.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+# -- Container security context.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Node selector.
+nodeSelector: {}
+# -- Tolerations.
+tolerations: []
+# -- Affinity.
+affinity: {}
+# -- Topology spread constraints. A `labelSelector` matching the pods is added
+# when omitted.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+
+podDisruptionBudget:
+  # -- Render a PodDisruptionBudget. Skipped when the effective replica count
+  # (`autoscaling.minReplicas` with autoscaling, else `replicaCount`) is 1, as
+  # it would block every node drain.
+  enabled: true
+  # -- Minimum available pods during voluntary disruptions.
+  minAvailable: 1
+
+autoscaling:
+  # -- Render a HorizontalPodAutoscaler (replaces `replicaCount`).
+  enabled: false
+  # -- Minimum replicas.
+  minReplicas: 2
+  # -- Maximum replicas.
+  maxReplicas: 6
+  # -- Target average CPU utilization (percent of requests).
+  targetCPUUtilizationPercentage: 75
+  # -- Target average memory utilization (percent of requests).
+  targetMemoryUtilizationPercentage: 80
+
+ingress:
+  # -- Render an Ingress routing `path` on `host` to crono-server. crono-web
+  # serves `/` on the same host. `/live`, `/ready`, `/health` and `/metrics`
+  # are never routed.
+  enabled: false
+  # -- IngressClass name; empty uses the cluster default.
+  className: ""
+  # -- Ingress annotations (e.g. `cert-manager.io/cluster-issuer`).
+  annotations: {}
+  # -- REQUIRED when `enabled`. Public host name.
+  host: ""
+  # -- API path prefix.
+  path: /api
+  # -- Ingress path type.
+  pathType: Prefix
+  tls:
+    # -- Terminate TLS for `host`.
+    enabled: true
+    # -- REQUIRED when `tls.enabled`. Existing (or cert-manager managed) TLS
+    # Secret for `host`.
+    secretName: ""
+
+networkPolicy:
+  # -- Render a default-deny networking.k8s.io/v1 NetworkPolicy. DNS egress is
+  # allowed to `networkPolicy.dns.to` on `networkPolicy.dns.ports`.
+  enabled: false
+  # Cluster DNS egress rule. The default selects kube-dns/CoreDNS in
+  # kube-system; with NodeLocal DNSCache use an ipBlock for its address
+  # (docs/operations.md).
+  dns:
+    # -- NetworkPolicyPeers of the cluster DNS servers.
+    to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+            k8s-app: kube-dns
+    # -- DNS ports allowed to `dns.to`.
+    ports:
+      - port: 53
+        protocol: UDP
+      - port: 53
+        protocol: TCP
+  # -- NetworkPolicyPeers (e.g. the Ingress controller pods) allowed to reach
+  # the server port. Empty blocks all ingress except node-local kubelet
+  # probes (allowed by most CNIs).
+  ingressFrom: []
+  # -- NetworkPolicyPeers (e.g. Prometheus) allowed to scrape `/metrics` on
+  # the server port.
+  metricsFrom: []
+  # -- CIDRs of the PostgreSQL servers (egress on `database.port`).
+  postgresCIDRs: []
+  # NATS egress on `nats.port`: one peer from the selectors plus one ipBlock
+  # per CIDR. Set both selectors to `null` for NATS outside the cluster.
+  nats:
+    # -- Namespace selector of the NATS server pods.
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: nats
+    # -- Pod selector of the NATS server pods.
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: nats
+    # -- CIDRs of NATS servers outside the cluster.
+    cidrs: []
+    # -- NATS client port.
+    port: 4222
+  # -- Raw NetworkPolicyEgressRules appended to the policy (e.g. an OTLP
+  # collector or in-cluster PostgreSQL).
+  extraEgress: []

@@ -1,0 +1,16 @@
+# Self-contained values for chart-testing and kubeconform: exercises the
+# Ingress, NetworkPolicy and HPA templates.
+ingress:
+  enabled: true
+  className: nginx
+  host: crono.example.com
+  tls:
+    secretName: crono-tls
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+autoscaling:
+  enabled: true

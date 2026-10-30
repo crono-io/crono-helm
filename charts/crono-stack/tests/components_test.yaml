@@ -1,0 +1,121 @@
+suite: crono-stack components, aliases and conditions
+release:
+  name: crono
+  namespace: crono
+templates:
+  - charts/server/templates/deployment.yaml
+  - charts/server/templates/secret.yaml
+  - charts/web/templates/deployment.yaml
+  - charts/nats/templates/stateful-set.yaml
+values:
+  - required_values.yaml
+tests:
+  - it: names crono-server resources after the `server` alias
+    template: charts/server/templates/deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: crono-server
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/crono-io/crono-server:0.1.9
+
+  - it: passes umbrella values through to crono-server
+    template: charts/server/templates/deployment.yaml
+    set:
+      server.replicaCount: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_NATS_URL
+            value: nats://crono-nats.crono.svc.cluster.local:4222
+
+  - it: creates the server Secret from server.secret.*
+    template: charts/server/templates/secret.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: crono-server
+
+  - it: names crono-web resources after the `web` alias
+    template: charts/web/templates/deployment.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: crono-web
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/crono-io/crono-web:0.1.9
+
+  - it: does not deploy NATS by default
+    template: charts/nats/templates/stateful-set.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+        documentSelector:
+          path: kind
+          value: StatefulSet
+          skipEmptyTemplates: true
+
+  - it: deploys a single JetStream NATS server when nats.enabled
+    template: charts/nats/templates/stateful-set.yaml
+    set:
+      nats.enabled: true
+    asserts:
+      - isKind:
+          of: StatefulSet
+      - equal:
+          path: metadata.name
+          value: crono-nats
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 10Gi
+
+  - it: server.enabled=false removes crono-server and its Secret
+    set:
+      server.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: charts/server/templates/deployment.yaml
+        documentSelector:
+          path: metadata.name
+          value: crono-server
+          skipEmptyTemplates: true
+      - hasDocuments:
+          count: 0
+        template: charts/server/templates/secret.yaml
+        documentSelector:
+          path: metadata.name
+          value: crono-server
+          skipEmptyTemplates: true
+
+  - it: web.enabled=false removes crono-web
+    template: charts/web/templates/deployment.yaml
+    set:
+      web.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        documentSelector:
+          path: metadata.name
+          value: crono-web
+          skipEmptyTemplates: true
+
+  - it: subchart schemas still apply through the umbrella
+    template: charts/server/templates/deployment.yaml
+    set:
+      server.nats.url: ""
+    asserts:
+      - failedTemplate: {}

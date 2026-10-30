@@ -1,0 +1,27 @@
+# Self-contained values for chart-testing and kubeconform. The credentials
+# below are TEST-ONLY dummies (not real secrets); never reuse them.
+database:
+  host: postgres.example.internal
+nats:
+  url: nats://nats.nats.svc.cluster.local:4222
+secret:
+  authToken: test-only-dummy-token-not-a-real-secret-0000
+  databasePassword: test-only-dummy-password
+ingress:
+  enabled: true
+  className: nginx
+  host: crono.example.com
+  tls:
+    secretName: crono-tls
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  metricsFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+  postgresCIDRs:
+    - 10.20.0.10/32

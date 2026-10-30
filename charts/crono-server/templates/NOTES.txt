@@ -1,0 +1,34 @@
+crono-server {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Image: {{ include "crono-server.image" . }}{{ if not .Values.image.digest }} (not pinned by digest; set image.digest and requireImageDigest=true for production){{ end }}
+
+Watch the rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "crono-server.fullname" . }}
+
+Check PostgreSQL and NATS connectivity:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "crono-server.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -s http://127.0.0.1:8080/health
+{{- if .Values.ingress.enabled }}
+
+API URL: http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+{{- end }}
+
+Credentials: Secret {{ include "crono-server.secretName" . }}{{ if .Values.existingSecret }} (existing; keys CRONO_AUTH_DEVELOPMENT_TOKEN, PGPASSWORD{{ if eq .Values.nats.auth.mode "nkey" }}, nats.nkey{{ else if eq .Values.nats.auth.mode "creds" }}, nats.creds{{ else if eq .Values.nats.auth.mode "userPassword" }}, CRONO_NATS_PASSWORD{{ end }}){{ else }} (created by this chart from secret.*){{ end }}
+{{- with .Values.database.caSecret.name }}
+PostgreSQL CA: Secret {{ . }} (key {{ $.Values.database.caSecret.key }}) must exist.
+{{- end }}
+{{- with .Values.nats.caSecret.name }}
+NATS CA: Secret {{ . }} (key {{ $.Values.nats.caSecret.key }}) must exist.
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+{{- if not .Values.networkPolicy.ingressFrom }}
+
+WARNING: networkPolicy.ingressFrom is empty; no Ingress controller can reach crono-server.
+{{- end }}
+{{- if not .Values.networkPolicy.postgresCIDRs }}
+
+WARNING: networkPolicy.postgresCIDRs is empty; allow PostgreSQL through networkPolicy.extraEgress.
+{{- end }}
+{{- end }}
+
+Apply the database schema of this release before first use (see the crono documentation).

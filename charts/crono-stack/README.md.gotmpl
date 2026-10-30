@@ -1,0 +1,44 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}
+
+{{ template "chart.description" . }}
+
+| Key | Chart | Values reference |
+|-----|-------|------------------|
+| `server` | [crono-server](../crono-server) (alias `server`) | [crono-server README](../crono-server/README.md) |
+| `web` | [crono-web](../crono-web) (alias `web`) | [crono-web README](../crono-web/README.md) |
+| `nats` | official [NATS chart](https://github.com/nats-io/k8s/tree/main/helm/charts/nats) 2.15.2, disabled by default | `helm show values nats --repo https://nats-io.github.io/k8s/helm/charts/ --version 2.15.2` |
+
+Resources are named `<release>-server`, `<release>-web` and `<release>-nats`.
+
+## Evaluation: bundled NATS
+
+PostgreSQL with the crono schema applied
+([install guide](../../docs/install-guide.md#database-schema)) is still
+required. The bundled NATS is one JetStream server without TLS or
+authentication, reachable only inside the cluster:
+
+```sh
+helm install crono oci://ghcr.io/crono-io/charts/crono-stack \
+  --version {{ template "chart.version" . }} -n crono --create-namespace \
+  --set nats.enabled=true \
+  --set server.nats.url=nats://crono-nats.crono.svc.cluster.local:4222 \
+  --set server.database.host=postgres.example.internal \
+  --set server.secret.authToken="$(openssl rand -hex 32)" \
+  --set server.secret.databasePassword='<crono_runtime password>'
+```
+
+The namespace must allow the `baseline` Pod Security level: the upstream NATS
+image runs as root. crono-server and crono-web satisfy `restricted`.
+
+## Production
+
+Leave `nats.enabled=false` and point `server.nats.url` at a separately managed
+NATS JetStream cluster (TLS, NKey users, RF3). See
+[docs/examples/production-stack.yaml](../../docs/examples/production-stack.yaml)
+and [docs/examples/nats-jetstream-ha.yaml](../../docs/examples/nats-jetstream-ha.yaml).
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

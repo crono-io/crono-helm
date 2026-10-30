@@ -1,0 +1,182 @@
+# Default values for the crono-web chart.
+#
+# crono-web is the crono single-page app served by unprivileged nginx. The
+# browser calls `/api` on the same origin, so route `/` here and `/api` to
+# crono-server on the same host.
+
+# -- Override the chart name used in resource names and labels.
+nameOverride: ""
+# -- Override the full resource name (defaults to `<release>-<chart>`, or the
+# release name when it already contains the chart name).
+fullnameOverride: ""
+# -- Labels added to every rendered resource.
+commonLabels: {}
+# -- Image pull secrets (names of existing kubernetes.io/dockerconfigjson Secrets).
+imagePullSecrets: []
+
+# -- Replicas (ignored when `autoscaling.enabled`).
+replicaCount: 2
+
+image:
+  # -- Image repository.
+  repository: ghcr.io/crono-io/crono-web
+  # -- Image tag. Ignored when `digest` is set.
+  # @default -- chart `appVersion`
+  tag: ""
+  # -- Image index digest (`sha256:<64 hex>`, from the crono release notes).
+  # When set the image is pulled as `repository@digest`.
+  digest: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+# -- Fail rendering unless `image.digest` is set. Recommended for production.
+requireImageDigest: false
+
+serviceAccount:
+  # -- Create a dedicated ServiceAccount. Its token is never mounted.
+  create: true
+  # -- ServiceAccount name; defaults to the full name when empty.
+  name: ""
+  # -- ServiceAccount annotations.
+  annotations: {}
+
+# -- nginx listen port baked into the image.
+port: 8080
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port.
+  port: 8080
+
+# -- Container resources.
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+# -- Probe timings (both use `/healthz`).
+probes:
+  liveness:
+    periodSeconds: 10
+    failureThreshold: 3
+    timeoutSeconds: 2
+  readiness:
+    periodSeconds: 5
+    failureThreshold: 3
+    timeoutSeconds: 2
+
+# -- Seconds the pod keeps serving after it is removed from endpoints, so
+# Ingress controllers stop routing before SIGTERM.
+preStopSleepSeconds: 5
+# -- Pod termination grace period.
+terminationGracePeriodSeconds: 30
+# -- Size limit of the /tmp emptyDir (nginx pid file and temp buffers).
+tmpSizeLimit: 64Mi
+
+# -- Pod annotations.
+podAnnotations: {}
+# -- Extra pod labels.
+podLabels: {}
+# -- Pod security context.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  runAsGroup: 101
+  fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+# -- Container security context.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 101
+  runAsGroup: 101
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Node selector.
+nodeSelector: {}
+# -- Tolerations.
+tolerations: []
+# -- Affinity.
+affinity: {}
+# -- Topology spread constraints. A `labelSelector` matching the pods is added
+# when omitted.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+
+podDisruptionBudget:
+  # -- Render a PodDisruptionBudget. Skipped when the effective replica count
+  # (`autoscaling.minReplicas` with autoscaling, else `replicaCount`) is 1, as
+  # it would block every node drain.
+  enabled: true
+  # -- Minimum available pods during voluntary disruptions.
+  minAvailable: 1
+
+autoscaling:
+  # -- Render a HorizontalPodAutoscaler (replaces `replicaCount`).
+  enabled: false
+  # -- Minimum replicas.
+  minReplicas: 2
+  # -- Maximum replicas.
+  maxReplicas: 6
+  # -- Target average CPU utilization (percent of requests).
+  targetCPUUtilizationPercentage: 75
+  # -- Target average memory utilization (percent of requests).
+  targetMemoryUtilizationPercentage: 80
+
+ingress:
+  # -- Render an Ingress routing `path` on `host` to crono-web. crono-server
+  # serves `/api` on the same host from its own Ingress.
+  enabled: false
+  # -- IngressClass name; empty uses the cluster default.
+  className: ""
+  # -- Ingress annotations (e.g. `cert-manager.io/cluster-issuer`).
+  annotations: {}
+  # -- REQUIRED when `enabled`. Public host name.
+  host: ""
+  # -- Path prefix.
+  path: /
+  # -- Ingress path type.
+  pathType: Prefix
+  tls:
+    # -- Terminate TLS for `host`.
+    enabled: true
+    # -- REQUIRED when `tls.enabled`. Existing (or cert-manager managed) TLS
+    # Secret for `host`.
+    secretName: ""
+
+networkPolicy:
+  # -- Render a default-deny networking.k8s.io/v1 NetworkPolicy. DNS egress is
+  # allowed to `networkPolicy.dns.to` on `networkPolicy.dns.ports`.
+  enabled: false
+  # Cluster DNS egress rule. The default selects kube-dns/CoreDNS in
+  # kube-system; with NodeLocal DNSCache use an ipBlock for its address
+  # (docs/operations.md).
+  dns:
+    # -- NetworkPolicyPeers of the cluster DNS servers.
+    to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+            k8s-app: kube-dns
+    # -- DNS ports allowed to `dns.to`.
+    ports:
+      - port: 53
+        protocol: UDP
+      - port: 53
+        protocol: TCP
+  # -- NetworkPolicyPeers (e.g. the Ingress controller pods) allowed to reach
+  # the web port. Empty blocks all ingress except node-local kubelet probes
+  # (allowed by most CNIs).
+  ingressFrom: []
+  # -- Raw NetworkPolicyEgressRules appended to the policy.
+  extraEgress: []

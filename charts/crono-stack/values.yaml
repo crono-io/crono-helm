@@ -1,0 +1,47 @@
+# Umbrella values. Configure each component under its key; every key of the
+# component charts is accepted there:
+#   server -> charts/crono-server (values reference: charts/crono-server/README.md)
+#   web    -> charts/crono-web    (values reference: charts/crono-web/README.md)
+#   nats   -> official NATS chart 2.15.2 (`helm show values nats/nats --version 2.15.2`)
+#
+# crono-server always needs `server.database.host` and `server.nats.url`, plus
+# credentials (`server.existingSecret` or `server.secret.*`); see
+# docs/install-guide.md.
+
+server:
+  # -- Deploy crono-server (API, scheduler, outbox dispatcher, worker-control
+  # responders). Resources are named `<release>-server`.
+  enabled: true
+
+web:
+  # -- Deploy crono-web (the single-page app behind nginx). Resources are
+  # named `<release>-web`.
+  enabled: true
+
+nats:
+  # -- Deploy a NATS server from the official chart in this release, for
+  # evaluation and single-cluster setups. Production should run a separately
+  # managed NATS JetStream cluster (docs/examples/nats-jetstream-ha.yaml).
+  # When enabled, point crono-server at it:
+  # `server.nats.url: nats://<release>-nats.<namespace>.svc.cluster.local:4222`.
+  enabled: false
+  # -- Official NATS chart configuration: one JetStream server with file
+  # storage, no TLS and no authentication (reachable only inside the cluster).
+  # Keep the PVC at 8Gi or more: crono's CRONO_DISPATCH stream reserves 8 GiB
+  # (`max_bytes`) and JetStream refuses to create it in a smaller store.
+  # @default -- single JetStream server, 10Gi PVC
+  config:
+    cluster:
+      enabled: false
+    jetstream:
+      enabled: true
+      fileStore:
+        enabled: true
+        pvc:
+          enabled: true
+          size: 10Gi
+      memoryStore:
+        enabled: false
+  # -- The interactive nats-box pod is not deployed; run it ad hoc when needed.
+  natsBox:
+    enabled: false

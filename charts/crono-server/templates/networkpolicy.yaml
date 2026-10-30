@@ -1,0 +1,68 @@
+{{- /*
+Default-deny NetworkPolicy (networking.k8s.io/v1) for crono-server. Each rule
+is an explicit allowance:
+- ingress: the server port from `ingressFrom` (Ingress controller) and
+  `metricsFrom` (Prometheus). Node-local kubelet probes are allowed by most
+  CNIs regardless of NetworkPolicy.
+- egress: cluster DNS (`dns.to` on `dns.ports`), PostgreSQL CIDRs, NATS
+  (selectors and CIDRs) and any `extraEgress` rules.
+*/ -}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy -}}
+{{- $ingress := list -}}
+{{- range $peers := list $np.ingressFrom $np.metricsFrom }}
+{{- if $peers }}
+{{- $ingress = append $ingress (dict "from" $peers "ports" (list (dict "port" (int $.Values.port) "protocol" "TCP"))) }}
+{{- end }}
+{{- end }}
+{{- $natsPeers := list -}}
+{{- with $np.nats }}
+{{- $peer := dict -}}
+{{- with .namespaceSelector }}{{ $_ := set $peer "namespaceSelector" . }}{{ end }}
+{{- with .podSelector }}{{ $_ := set $peer "podSelector" . }}{{ end }}
+{{- if $peer }}{{ $natsPeers = append $natsPeers $peer }}{{ end }}
+{{- range .cidrs }}{{ $natsPeers = append $natsPeers (dict "ipBlock" (dict "cidr" .)) }}{{ end }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "crono-server.fullname" . | quote }}
+  labels:
+    {{- include "crono-server.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "crono-server.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- with $ingress }}
+  ingress:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  egress:
+    - to:
+        {{- toYaml $np.dns.to | nindent 8 }}
+      ports:
+        {{- toYaml $np.dns.ports | nindent 8 }}
+    {{- with $np.postgresCIDRs }}
+    - to:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - port: {{ $.Values.database.port }}
+          protocol: TCP
+    {{- end }}
+    {{- with $natsPeers }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: {{ $np.nats.port }}
+          protocol: TCP
+    {{- end }}
+    {{- with $np.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

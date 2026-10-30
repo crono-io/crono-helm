@@ -1,0 +1,37 @@
+suite: crono-web image reference
+release:
+  name: crono-web
+  namespace: crono
+templates:
+  - deployment.yaml
+tests:
+  - it: defaults the tag to the chart appVersion
+    chart:
+      appVersion: 9.8.7
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/crono-io/crono-web:9.8.7
+
+  - it: pins repository@digest when a digest is set, ignoring the tag
+    set:
+      image.tag: dev-abc123
+      image.digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/crono-io/crono-web@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  - it: fails when requireImageDigest is true and no digest is set
+    set:
+      requireImageDigest: true
+    asserts:
+      - failedTemplate:
+          errorPattern: image.digest is required when requireImageDigest is true
+
+  - it: rejects a digest without the sha256 prefix
+    set:
+      image.digest: latest
+    asserts:
+      - failedTemplate:
+          errorPattern: image\.digest

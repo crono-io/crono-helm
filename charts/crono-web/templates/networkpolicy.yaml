@@ -1,0 +1,37 @@
+{{- /*
+Default-deny NetworkPolicy (networking.k8s.io/v1) for crono-web: ingress on
+the web port from `ingressFrom` only (node-local kubelet probes are allowed
+by most CNIs regardless), egress to cluster DNS (`dns.to` on `dns.ports`)
+plus `extraEgress`.
+*/ -}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "crono-web.fullname" . | quote }}
+  labels:
+    {{- include "crono-web.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "crono-web.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- with .Values.networkPolicy.ingressFrom }}
+  ingress:
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: {{ $.Values.port }}
+          protocol: TCP
+  {{- end }}
+  egress:
+    - to:
+        {{- toYaml .Values.networkPolicy.dns.to | nindent 8 }}
+      ports:
+        {{- toYaml .Values.networkPolicy.dns.ports | nindent 8 }}
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

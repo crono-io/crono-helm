@@ -1,0 +1,45 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}
+
+{{ template "chart.description" . }}
+
+## Install
+
+PostgreSQL (with the crono schema applied) and NATS JetStream must already be
+reachable from the cluster.
+
+```sh
+helm install crono-server oci://ghcr.io/crono-io/charts/crono-server \
+  --version {{ template "chart.version" . }} -n crono --create-namespace \
+  --set database.host=postgres.example.internal \
+  --set nats.url=nats://nats.nats.svc:4222 \
+  --set secret.authToken="$(openssl rand -hex 32)" \
+  --set secret.databasePassword='<crono_runtime password>'
+```
+
+For production, keep credentials in an existing Secret (`existingSecret`),
+pin the image by digest (`image.digest`, `requireImageDigest: true`) and use
+TLS for PostgreSQL and NATS (`database.caSecret`, `nats.caSecret`).
+
+Install [crono-web](../crono-web) with the same `ingress.host` so `/` serves
+the app and `/api` reaches this chart, or install both with `crono-stack`.
+
+## Credentials
+
+With `existingSecret` empty the chart creates a Secret from `secret.*`;
+`authToken` (32-8192 bytes) and `databasePassword` are required, plus the
+NATS credential of `nats.auth.mode`. With `existingSecret` set, that Secret
+must hold:
+
+| Key | When |
+|-----|------|
+| `CRONO_AUTH_DEVELOPMENT_TOKEN` | always |
+| `PGPASSWORD` | always |
+| `nats.nkey` | `nats.auth.mode=nkey` |
+| `nats.creds` | `nats.auth.mode=creds` |
+| `CRONO_NATS_PASSWORD` | `nats.auth.mode=userPassword` |
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

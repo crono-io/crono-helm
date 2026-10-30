@@ -1,0 +1,24 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}
+
+{{ template "chart.description" . }}
+
+## Install
+
+```sh
+helm install crono-web oci://ghcr.io/crono-io/charts/crono-web \
+  --version {{ template "chart.version" . }} -n crono --create-namespace \
+  --set ingress.enabled=true \
+  --set ingress.host=crono.example.com \
+  --set ingress.tls.secretName=crono-tls
+```
+
+The app calls `/api` on its own origin: install
+[crono-server](../crono-server) with the same `ingress.host` (its Ingress
+claims `/api`), or install both with `crono-stack`. For production, pin the
+image by digest (`image.digest`, `requireImageDigest: true`).
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

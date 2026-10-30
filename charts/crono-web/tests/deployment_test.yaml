@@ -1,0 +1,80 @@
+suite: crono-web Deployment hardening and scheduling
+release:
+  name: crono-web
+  namespace: crono
+templates:
+  - deployment.yaml
+  - hpa.yaml
+tests:
+  - it: runs nginx as UID 101 with a read-only root filesystem
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 101
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value: [ALL]
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: mounts a size-limited /tmp and probes /healthz
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /healthz
+
+  - it: has no nodeSelector by default
+    template: deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+
+  - it: quotes labels so a YAML-ambiguous release name stays a string
+    template: deployment.yaml
+    release:
+      name: "n"
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: "n"
+
+  - it: renders an HPA and drops replicas when autoscaling is enabled
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - notExists:
+          path: spec.replicas
+        template: deployment.yaml
+      - equal:
+          path: spec.minReplicas
+          value: 2
+        template: hpa.yaml
+
+  - it: fails when minReplicas exceeds maxReplicas
+    template: deployment.yaml
+    set:
+      autoscaling:
+        enabled: true
+        minReplicas: 8
+        maxReplicas: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: autoscaling.minReplicas must not be greater than autoscaling.maxReplicas

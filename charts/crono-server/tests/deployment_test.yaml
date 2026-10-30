@@ -1,0 +1,101 @@
+suite: crono-server Deployment hardening and scheduling
+release:
+  name: crono-server
+  namespace: crono
+templates:
+  - deployment.yaml
+  - hpa.yaml
+values:
+  - required_values.yaml
+tests:
+  - it: runs as non-root with a read-only root filesystem and no capabilities
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65532
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value: [ALL]
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: has no nodeSelector by default
+    template: deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+      - equal:
+          path: spec.replicas
+          value: 2
+
+  - it: adds the pod selector to topology spread constraints
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels["app.kubernetes.io/component"]
+          value: server
+
+  - it: probes /live and /ready and sleeps before stopping
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /live
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /ready
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle.preStop.sleep.seconds
+          value: 5
+
+  - it: quotes labels so a YAML-ambiguous release name stays a string
+    template: deployment.yaml
+    release:
+      name: "on"
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: "on"
+
+  - it: truncates an over-long fullnameOverride to 63 characters
+    template: deployment.yaml
+    set:
+      fullnameOverride: ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    asserts:
+      - equal:
+          path: metadata.name
+          value: ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+  - it: renders an HPA and drops replicas when autoscaling is enabled
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - notExists:
+          path: spec.replicas
+        template: deployment.yaml
+      - equal:
+          path: spec.maxReplicas
+          value: 6
+        template: hpa.yaml
+
+  - it: fails when minReplicas exceeds maxReplicas
+    template: deployment.yaml
+    set:
+      autoscaling:
+        enabled: true
+        minReplicas: 8
+        maxReplicas: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: autoscaling.minReplicas must not be greater than autoscaling.maxReplicas

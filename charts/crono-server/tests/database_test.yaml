@@ -1,0 +1,89 @@
+suite: crono-server PostgreSQL wiring
+release:
+  name: crono-server
+  namespace: crono
+templates:
+  - deployment.yaml
+values:
+  - required_values.yaml
+tests:
+  - it: builds the URL without the password or a CA by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_DATABASE_URL
+            value: postgres://crono_runtime@postgres.example.internal:5432/crono?sslmode=verify-full
+      - notExists:
+          path: spec.template.spec.volumes
+
+  - it: mounts the PostgreSQL CA only when caSecret.name is set
+    set:
+      database.caSecret.name: postgres-ca
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_DATABASE_URL
+            value: postgres://crono_runtime@postgres.example.internal:5432/crono?sslmode=verify-full&sslrootcert=/etc/crono/postgres/ca.crt
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-ca
+            secret:
+              secretName: postgres-ca
+              defaultMode: 0440
+              items:
+                - key: ca.crt
+                  path: ca.crt
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: postgres-ca
+            mountPath: /etc/crono/postgres
+            readOnly: true
+
+  - it: brackets an IPv6 literal host
+    set:
+      database.host: "2001:db8::1"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_DATABASE_URL
+            value: postgres://crono_runtime@[2001:db8::1]:5432/crono?sslmode=verify-full
+
+  - it: keeps an already bracketed IPv6 host unchanged
+    set:
+      database.host: "[2001:db8::1]"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_DATABASE_URL
+            value: postgres://crono_runtime@[2001:db8::1]:5432/crono?sslmode=verify-full
+
+  - it: percent-encodes spaces and reserved characters in the user and database name
+    set:
+      database.user: "service user+ops"
+      database.name: "crono db/eu"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CRONO_DATABASE_URL
+            value: postgres://service%20user%2Bops@postgres.example.internal:5432/crono%20db%2Feu?sslmode=verify-full
+
+  - it: fails without database.host
+    set:
+      database.host: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: database\.host
+
+  - it: fails when database.host is nulled
+    set:
+      database.host: null
+    asserts:
+      - failedTemplate:
+          errorPattern: host is required

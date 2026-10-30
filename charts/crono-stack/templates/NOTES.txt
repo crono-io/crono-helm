@@ -1,0 +1,38 @@
+crono-stack {{ .Chart.Version }} (crono {{ .Chart.AppVersion }}) installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+{{- $server := .Values.server }}
+{{- $web := .Values.web }}
+{{- if $server.enabled }}
+{{- $serverName := include "crono-stack.componentFullname" (dict "root" $ "values" $server "name" "server") }}
+{{- $serverPort := $server.service.port | default 8080 }}
+
+crono-server: Service {{ $serverName }}, port {{ $serverPort }}.
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ $serverName }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ $serverName }} 8080:{{ $serverPort }}
+  curl -s localhost:8080/ready
+  curl -s localhost:8080/health    # "database" and "nats" should report "available"
+{{- end }}
+{{- if $web.enabled }}
+
+crono-web: Service {{ include "crono-stack.componentFullname" (dict "root" $ "values" $web "name" "web") }}, port {{ $web.service.port | default 8080 }}.
+{{- end }}
+{{- if and $web.enabled $web.ingress.enabled $web.ingress.host }}
+
+Public URL: http{{ if $web.ingress.tls.enabled }}s{{ end }}://{{ $web.ingress.host }}/ (the API is served under /api by crono-server's Ingress).
+{{- end }}
+{{- if .Values.nats.enabled }}
+{{- $natsName := include "crono-stack.componentFullname" (dict "root" $ "values" .Values.nats "name" "nats") }}
+{{- $natsUrl := printf "nats://%s.%s.svc.cluster.local:4222" $natsName .Release.Namespace }}
+
+Bundled NATS (evaluation only): StatefulSet {{ $natsName }}, one JetStream server,
+no TLS, no authentication. Production runs a separately managed NATS JetStream
+cluster (docs/examples/nats-jetstream-ha.yaml).
+{{- if and $server.enabled (not (contains $natsName (toString $server.nats.url))) }}
+
+WARNING: server.nats.url ({{ $server.nats.url }}) does not point at the bundled NATS.
+To use it, set:
+  server:
+    nats:
+      url: {{ $natsUrl }}
+      replicas: 1
+{{- end }}
+{{- end }}

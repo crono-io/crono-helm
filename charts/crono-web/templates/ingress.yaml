@@ -1,0 +1,39 @@
+{{- /*
+Routes `ingress.path` (default `/`) on `ingress.host` to crono-web. Install
+crono-server with the same host so its Ingress claims `/api`; the longer
+prefix wins, so both Ingresses can share the host.
+*/ -}}
+{{- if .Values.ingress.enabled }}
+{{- $host := required "crono-web: ingress.host is required when ingress.enabled" .Values.ingress.host }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "crono-web.fullname" . | quote }}
+  labels:
+    {{- include "crono-web.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ required "crono-web: ingress.tls.secretName is required when ingress.tls.enabled" .Values.ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.path | quote }}
+            pathType: {{ .Values.ingress.pathType | quote }}
+            backend:
+              service:
+                name: {{ include "crono-web.fullname" . | quote }}
+                port:
+                  name: http
+{{- end }}

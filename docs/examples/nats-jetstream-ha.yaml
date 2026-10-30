@@ -1,0 +1,197 @@
+# Values for the official NATS chart (https://nats-io.github.io/k8s/helm/charts/,
+# chart `nats`, version 2.15.2): a 3-server JetStream cluster for crono with
+# TLS and NKey authentication. Release "nats" in namespace "nats":
+#
+#   helm upgrade --install nats nats --repo https://nats-io.github.io/k8s/helm/charts/ \
+#     --version 2.15.2 -n nats -f docs/examples/nats-jetstream-ha.yaml --wait
+#
+# Keep the release name `nats`: certificate SANs, selectors and crono's
+# `server.nats.url` (tls://nats.nats.svc.cluster.local:4222) assume it.
+#
+# Before installing (docs/install-guide.md#nats):
+#   - Secrets in namespace nats: `nats-server-tls` (kubernetes.io/tls, server
+#     certificate with serverAuth AND clientAuth usages) and `nats-ca` (ca.crt);
+#   - replace every REPLACE value. NKeys below are *public* user keys (`U...`)
+#     from `nk -gen user -pubout`; the seeds (`SU...`) never go in values or
+#     Git. nats-server refuses to start with the placeholders, so a forgotten
+#     replacement fails closed.
+#
+# Helm replaces lists instead of merging them: an override of the users list
+# or the affinity must restate the whole list.
+
+config:
+  # Three servers so the CRONO_DISPATCH stream can use RF3 (crono-server sets
+  # CRONO_NATS_REPLICAS=3). Required anti-affinity below needs >= 3 nodes.
+  cluster:
+    enabled: true
+    replicas: 3
+    # Routes dial nats-<n>.nats-headless.nats.svc.cluster.local, matched by the
+    # SAN *.nats-headless.nats.svc.cluster.local in every TLS implementation.
+    routeURLs:
+      useFQDN: true
+    # Mutually authenticated route TLS.
+    tls:
+      enabled: true
+      secretName: nats-server-tls
+      merge:
+        verify: true
+
+  jetstream:
+    enabled: true
+    fileStore:
+      enabled: true
+      dir: /data
+      pvc:
+        enabled: true
+        # One PVC per server; JetStream replicates the data itself (RF3), so
+        # local SSD volumes are preferred over replicated network storage.
+        size: 20Gi
+        # REPLACE: StorageClass of your cluster (null = cluster default).
+        storageClassName: null
+    memoryStore:
+      enabled: false
+
+  # Client port; crono-server and workers must use tls:// URLs.
+  nats:
+    port: 4222
+    tls:
+      enabled: true
+      secretName: nats-server-tls
+
+  # HTTP monitoring (/healthz, /varz, /jsz) for probes and Prometheus; never
+  # published through the Service.
+  monitor:
+    enabled: true
+    port: 8222
+
+  leafnodes:
+    enabled: false
+  websocket:
+    enabled: false
+  mqtt:
+    enabled: false
+  gateway:
+    enabled: false
+
+  # Authentication and authorization: only public NKeys appear here.
+  merge:
+    system_account: SYS
+    accounts:
+      SYS:
+        users: []
+      CRONO:
+        jetstream: enabled
+        users:
+          # crono-server (all replicas share one identity). Its seed is the
+          # `nats.nkey` key of the crono-server Secret.
+          - nkey: UREPLACE_CRONO_SERVER_PUBLIC_NKEY
+            permissions:
+              publish:
+                allow: ["crono.>", "$JS.API.>", "$JS.ACK.>", "_INBOX.>"]
+              subscribe:
+                allow: ["crono.worker.>", "_INBOX.>"]
+          # Operator identity for stream backup/restore and inspection with the
+          # `nats` CLI (docs/operations.md). Keep its seed offline.
+          - nkey: UREPLACE_CRONO_OPS_PUBLIC_NKEY
+            permissions:
+              publish:
+                allow: ["$JS.API.>", "$JS.SNAPSHOT.>", "_INBOX.>"]
+              subscribe:
+                allow: ["_INBOX.>"]
+          # One entry per external worker (docs/operations.md#external-workers).
+          # REPLACE: `worker-01` with the worker's CRONO_WORKER_ID and
+          # 00000000-0000-0000-0000-000000000000 with the UUID of its Queue.
+          - nkey: UREPLACE_WORKER_01_PUBLIC_NKEY
+            permissions:
+              publish:
+                allow:
+                  - "crono.worker.control.*.worker-01"
+                  - "crono.worker.presence.worker-01"
+                  - "crono.worker.output.worker-01"
+                  - "crono.worker.queue.resolve.*"
+                  - "$JS.API.INFO"
+                  - "$JS.API.STREAM.INFO.CRONO_DISPATCH"
+                  - "$JS.API.CONSUMER.INFO.CRONO_DISPATCH.crono-00000000-0000-0000-0000-000000000000"
+                  - "$JS.API.CONSUMER.CREATE.CRONO_DISPATCH.crono-00000000-0000-0000-0000-000000000000.crono.dispatch.00000000-0000-0000-0000-000000000000"
+                  - "$JS.API.CONSUMER.MSG.NEXT.CRONO_DISPATCH.crono-00000000-0000-0000-0000-000000000000"
+                  - "$JS.ACK.CRONO_DISPATCH.crono-00000000-0000-0000-0000-000000000000.>"
+              subscribe:
+                # Replies and pulled messages arrive on _INBOX subjects; see the
+                # _INBOX risk in docs/operations.md.
+                allow: ["_INBOX.>"]
+
+# CA bundle referenced as ca_file in every TLS block (client and routes).
+tlsCA:
+  enabled: true
+  secretName: nats-ca
+  key: ca.crt
+
+container:
+  env:
+    # Keep the Go heap below the memory limit.
+    GOMEMLIMIT: 1800MiB
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+podTemplate:
+  # Spread across hosts and, where nodes carry zone labels, across zones. The
+  # hard guarantee is the required anti-affinity below.
+  topologySpreadConstraints:
+    kubernetes.io/hostname:
+      maxSkew: 1
+      whenUnsatisfiable: ScheduleAnyway
+    topology.kubernetes.io/zone:
+      maxSkew: 1
+      whenUnsatisfiable: ScheduleAnyway
+  merge:
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: nats
+                  app.kubernetes.io/instance: nats
+                  app.kubernetes.io/component: nats
+
+# Client Service: only port 4222 is published; routes and monitoring stay on
+# the headless Service and pod IPs. ClusterIP serves in-cluster clients only.
+# Workers outside the cluster need a LoadBalancer (or NodePort):
+#   --set service.merge.spec.type=LoadBalancer \
+#   --set service.merge.spec.externalTrafficPolicy=Local
+# `Local` preserves worker source IPs for firewall rules and network policies.
+# Add the external DNS name / IP to the certificate SANs.
+service:
+  enabled: true
+  ports:
+    nats:
+      enabled: true
+    leafnodes:
+      enabled: false
+    websocket:
+      enabled: false
+    mqtt:
+      enabled: false
+    cluster:
+      enabled: false
+    gateway:
+      enabled: false
+    monitor:
+      enabled: false
+    profiling:
+      enabled: false
+  merge:
+    spec:
+      type: ClusterIP
+
+podDisruptionBudget:
+  enabled: true
+
+# nats-box is an interactive debugging pod; run it ad hoc instead.
+natsBox:
+  enabled: false

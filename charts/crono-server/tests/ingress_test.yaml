@@ -1,0 +1,76 @@
+suite: crono-server Ingress
+release:
+  name: crono-server
+  namespace: crono
+templates:
+  - ingress.yaml
+values:
+  - required_values.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: routes /api on the host to the server Service with TLS
+    set:
+      ingress.enabled: true
+      ingress.className: nginx
+      ingress.host: crono.example.com
+      ingress.tls.secretName: crono-tls
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - equal:
+          path: spec.tls
+          value:
+            - hosts: [crono.example.com]
+              secretName: crono-tls
+      - equal:
+          path: spec.rules[0]
+          value:
+            host: crono.example.com
+            http:
+              paths:
+                - path: /api
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: crono-server
+                      port:
+                        name: http
+
+  - it: omits TLS when disabled
+    set:
+      ingress.enabled: true
+      ingress.host: crono.example.com
+      ingress.tls.enabled: false
+    asserts:
+      - notExists:
+          path: spec.tls
+
+  - it: requires a host
+    set:
+      ingress.enabled: true
+      ingress.tls.secretName: crono-tls
+    asserts:
+      - failedTemplate:
+          errorPattern: "Must validate \"then\""
+
+  - it: requires a host even when it is nulled
+    set:
+      ingress.enabled: true
+      ingress.host: null
+      ingress.tls.secretName: crono-tls
+    asserts:
+      - failedTemplate:
+          errorPattern: "Must validate \"then\""
+
+  - it: requires a TLS secret when TLS is enabled
+    set:
+      ingress.enabled: true
+      ingress.host: crono.example.com
+    asserts:
+      - failedTemplate:
+          errorPattern: "Must validate \"then\""
